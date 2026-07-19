@@ -7,9 +7,7 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
 
-# Optional: per-IP daily rate limit for AI calls. Create a KV namespace
-# (npx wrangler kv namespace create RATE_LIMIT) and uncomment:
-#
-# [[kv_namespaces]]
-# binding = "RATE_LIMIT"
-# id = "<your-kv-namespace-id>"
+# Per-IP daily rate limit for AI calls (cap set by DAILY_LIMIT in src/worker.js)
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "7f565c6b94cb4b8b8c2127e936d77ccc"
