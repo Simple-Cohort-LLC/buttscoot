@@ -34,18 +34,21 @@ ANTHROPIC_API_KEY=sk-ant-... python3 server.py
 `server.py` serves `public/` and proxies `/api/claude` to Anthropic so the key
 never reaches browser code.
 
-## Deploy (Cloudflare Pages)
+## Deploy (Cloudflare Workers)
 
-The repo is Pages-ready: static game in `public/`, API proxy in `functions/api/`.
+The repo is a Cloudflare Worker with static assets: the game in `public/`, the
+API proxy in `src/worker.js`. Connect the GitHub repo in the Cloudflare
+dashboard (Workers & Pages → Create → connect to Git) — the default
+`npx wrangler deploy` build command just works — or deploy from your machine:
 
 ```sh
 npx wrangler login
-npx wrangler pages deploy
-npx wrangler pages secret put ANTHROPIC_API_KEY   # optional — enables AI features
+npx wrangler deploy
+npx wrangler secret put ANTHROPIC_API_KEY   # optional — enables AI features
 ```
 
-Or connect the GitHub repo in the Cloudflare dashboard (build output directory:
-`public`). Without the secret, the game runs fine with its built-in roster and
+(In the dashboard, the secret lives under the Worker's Settings → Variables and
+Secrets.) Without the secret, the game runs fine with its built-in roster and
 scripted commentary.
 
 **Cost note:** a public deployment with a key means your account pays for every
@@ -57,9 +60,9 @@ you have real limits or accounts.
 
 ```
 public/            the game (index.html, style.css, game.js) — no build step
-functions/api/     Cloudflare Pages Functions: /api/status, /api/claude
-server.py          local dev server + Claude proxy (mirrors the Functions)
-wrangler.toml      Cloudflare Pages config
+src/worker.js      Cloudflare Worker: /api/status, /api/claude, asset fallthrough
+server.py          local dev server + Claude proxy (mirrors the Worker)
+wrangler.toml      Cloudflare Workers config
 ```
 
 ## License

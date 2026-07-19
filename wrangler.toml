@@ -1,6 +1,11 @@
 name = "buttscoot-gp"
+main = "src/worker.js"
 compatibility_date = "2026-07-01"
-pages_build_output_dir = "public"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
 
 # Optional: per-IP daily rate limit for AI calls. Create a KV namespace
 # (npx wrangler kv namespace create RATE_LIMIT) and uncomment:

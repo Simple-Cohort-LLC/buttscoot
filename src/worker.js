@@ -1,9 +1,9 @@
-// Cloudflare Pages Function: POST /api/claude
-// Proxies the game's AI requests to Anthropic so the API key stays server-side.
-// Set the key with:  npx wrangler pages secret put ANTHROPIC_API_KEY
+// Buttscoot GP — Cloudflare Worker
+// Serves /api/* (Claude proxy + status) and falls through to static assets.
+// The API key is a Worker secret:  npx wrangler secret put ANTHROPIC_API_KEY
 //
-// Optional cost protection: bind a KV namespace named RATE_LIMIT and each IP
-// gets DAILY_LIMIT AI calls per day. Without the binding, no limit is enforced.
+// Optional cost protection: bind a KV namespace named RATE_LIMIT (see
+// wrangler.toml) and each IP gets DAILY_LIMIT AI calls per day.
 
 const MODEL = 'claude-haiku-4-5-20251001';
 const MAX_TOKENS_CAP = 1000;
@@ -15,7 +15,23 @@ const json = (status, obj) =>
     headers: { 'content-type': 'application/json' },
   });
 
-export async function onRequestPost({ request, env }) {
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === '/api/status') {
+      return json(200, { ai: Boolean(env.ANTHROPIC_API_KEY) });
+    }
+    if (url.pathname === '/api/claude' && request.method === 'POST') {
+      return handleClaude(request, env);
+    }
+    if (url.pathname.startsWith('/api/')) {
+      return json(404, { error: 'not found' });
+    }
+    return env.ASSETS.fetch(request);
+  },
+};
+
+async function handleClaude(request, env) {
   if (!env.ANTHROPIC_API_KEY) return json(503, { error: 'no ANTHROPIC_API_KEY set' });
 
   if (env.RATE_LIMIT) {
