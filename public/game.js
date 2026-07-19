@@ -1691,6 +1691,14 @@ const Game = {
     return { 3: 0.5, 2: 0.35, 1: 0.15, 0: 0.12, '-1': 0.28, '-2': 0.07, '-3': 0.05 }[adv] || 0.05;
   },
 
+  /* belts tilt the odds on the mat — modestly, never decisively */
+  BELT_RANK: { white: 0, blue: 1, purple: 2, brown: 3, black: 4, coral: 5 },
+  beltMult(char) { return 0.85 + (this.BELT_RANK[char.belt] ?? 0) * 0.06; },
+  gripFactor(mine, theirs) {
+    return clamp(this.beltMult(mine) / this.beltMult(theirs), 0.8, 1.25);
+  },
+  statMult(v) { return 0.85 + v * 0.06; },
+
   startMatch(opp, demo = false) {
     const m = this.match = {
       opp, demo, t: 60, adv: 0,
@@ -1702,7 +1710,9 @@ const Game = {
     };
     this.player.speed = opp.speed = 0;
     if (demo) document.getElementById('screen-card').classList.add('hidden');
-    document.getElementById('sc-them').textContent = opp.char.name;
+    const rankDiff = (this.BELT_RANK[opp.char.belt] ?? 0) - (this.BELT_RANK[this.playerChar.belt] ?? 0);
+    const threat = rankDiff >= 2 ? '  ⚠ HIGHER BELT — GOOD LUCK' : rankDiff <= -2 ? '  · LOWER BELT' : '';
+    document.getElementById('sc-them').textContent = opp.char.name + threat;
     document.getElementById('sc-moves').classList.remove('hidden');
     document.getElementById('sc-result').classList.add('hidden');
     document.getElementById('sc-danger').classList.add('hidden');
@@ -1818,9 +1828,12 @@ const Game = {
     }
 
     m.playerCd = 0.75;
+    const rel = this.gripFactor(this.playerChar, m.opp.char);
+    const st = this.playerChar.stats;
 
     if (kind === 'advance') {
-      const p = clamp(0.65 - m.adv * 0.1, 0.2, 0.85);
+      /* explosive hips (scoot power) drive the pass */
+      const p = clamp((0.65 - m.adv * 0.1) * this.statMult(st.scoot) * rel, 0.15, 0.9);
       if (Math.random() < p) {
         this.changeAdv(1);
         this.setFeed(this.pick(['Knee slice! Position improved.', 'Pressure like rent is due. (+1)', 'Hip switch — you advanced!']));
@@ -1830,7 +1843,8 @@ const Game = {
         AudioKit.bump();
       }
     } else if (kind === 'sweep') {
-      const p = 0.3 + (m.adv < 0 ? 0.28 : 0);
+      /* mat control drives sweeps */
+      const p = clamp((0.3 + (m.adv < 0 ? 0.28 : 0)) * this.statMult(st.control) * rel, 0.1, 0.85);
       if (Math.random() < p) {
         this.changeAdv(2);
         this.setFeed(this.pick(['SWEPT! The crowd gasps. (+2)', 'Huge reversal! (+2)', 'Old-school sweep — beautiful. (+2)']));
@@ -1843,7 +1857,8 @@ const Game = {
       const sub = this.pick(this.SUB_NAMES[m.adv]);
       m.subFlash = 0.8;       // show the attack pose in the scene
       m.subFlashSub = sub;
-      if (Math.random() < this.subChance(m.adv)) {
+      const p = clamp(this.subChance(m.adv) * this.statMult(st.control) * rel, 0.03, 0.75);
+      if (Math.random() < p) {
         this.player.scSubs++;
         this.endMatch({ type: 'sub', sub });
         return;
@@ -1873,7 +1888,7 @@ const Game = {
     const ch = m.opp.char;
     const oppAdv = -m.adv;
     const name = ch.name;
-    const aggro = 0.75 + (ch.stats.scoot + ch.stats.control) / 25;
+    const aggro = this.gripFactor(ch, this.playerChar);
 
     let action;
     if (oppAdv >= 2) action = Math.random() < (ch.fav === 'submit' ? 0.6 : 0.42) ? 'submit' : 'pass';
@@ -1890,7 +1905,7 @@ const Game = {
       if (m.taunts?.subAttempt && Math.random() < 0.7) this.showBubble(m.opp, m.taunts.subAttempt);
       AudioKit.scLose();
     } else if (action === 'pass') {
-      const p = clamp(0.55 - oppAdv * 0.09, 0.15, 0.75) * aggro;
+      const p = clamp(0.55 - oppAdv * 0.09, 0.15, 0.75) * this.statMult(ch.stats.scoot) * aggro;
       if (m.guardUp > 0) {
         m.guardUp = 0;
         this.setFeed(`${name} pushed in — your frames held! Blocked.`);
@@ -1903,7 +1918,7 @@ const Game = {
         this.setFeed(this.pick([`${name} pushed forward — you held them off.`, `${name} hunting grips…`]));
       }
     } else {
-      const p = (0.26 + (oppAdv < 0 ? 0.26 : 0)) * aggro;
+      const p = (0.26 + (oppAdv < 0 ? 0.26 : 0)) * this.statMult(ch.stats.control) * aggro;
       if (m.guardUp > 0) {
         m.guardUp = 0;
         this.setFeed(`${name} tried to sweep — your base held! Blocked.`);
@@ -1946,7 +1961,11 @@ const Game = {
         m.danger = null;
         document.getElementById('sc-danger').classList.add('hidden');
         document.querySelector('[data-move="defend"]').classList.remove('defend-glow');
-        if (Math.random() < this.subChance(oppAdv) * 1.15) {
+        const ch = m.opp.char;
+        const p = clamp(
+          this.subChance(oppAdv) * 1.15 * this.statMult(ch.stats.control) * this.gripFactor(ch, this.playerChar),
+          0.03, 0.8);
+        if (Math.random() < p) {
           this.endMatch({ type: 'subbed', sub });
           return;
         }
