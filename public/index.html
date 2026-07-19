@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BUTTSCOOT GP — Jiu Jitsu Racing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Chivo+Mono:wght@400;700&family=Archivo:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<!-- ===== CHARACTER REVEAL / TITLE SCREEN ===== -->
+<div id="screen-card" class="screen">
+  <div class="title-block">
+    <div class="title-oss">OSS! WELCOME TO THE</div>
+    <h1 class="game-title"><span>BUTT</span><span class="title-scoot">SCOOT</span><span class="title-gp">GP</span></h1>
+    <div class="title-sub">MARIO-KART RULES. SEATED-GUARD SPEEDS. NO STANDING UP.</div>
+  </div>
+
+  <div class="card-area">
+    <div class="card-label">TODAY YOU ARE SCOOTING AS…</div>
+    <div id="char-card" class="char-card">
+      <div class="card-inner">
+        <div class="card-face card-back">
+          <div class="patch-ring">巴柔</div>
+          <div class="patch-text">BUTTSCOOT<br>ACADEMY</div>
+          <div class="scouting hidden" id="card-scouting">✦ SCOUTING NEW TALENT…</div>
+        </div>
+        <div class="card-face card-front">
+          <div class="belt-stripe" id="card-belt"></div>
+          <canvas id="char-portrait" width="220" height="220"></canvas>
+          <div class="char-name" id="card-name">—</div>
+          <div class="char-belt-label" id="card-belt-label">—</div>
+          <div class="char-tag" id="card-tag">—</div>
+          <div class="stat-rows" id="card-stats"></div>
+        </div>
+      </div>
+    </div>
+    <button id="btn-reroll" class="btn btn-ghost" title="New character">↻ TAP OUT, RE-ROLL</button>
+  </div>
+
+  <div class="track-pick">
+    <div class="card-label">PICK YOUR MATS</div>
+    <div id="track-buttons" class="track-buttons"></div>
+  </div>
+
+  <button id="btn-start" class="btn btn-big">SLAP • BUMP • <em>SCOOT!</em></button>
+  <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; (WASD works too)</div>
+  <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — 1 min round, any submission ends it</div>
+  <div class="ai-badge" id="ai-badge">✦ CLAUDE: CHECKING…</div>
+</div>
+
+<!-- ===== HUD ===== -->
+<div id="hud" class="hidden">
+  <div class="hud-left scoreboard">
+    <div class="sb-block sb-green">
+      <div class="sb-num" id="hud-lap">1</div>
+      <div class="sb-label">LAP / 3</div>
+    </div>
+    <div class="sb-block sb-red">
+      <div class="sb-num" id="hud-pos">4</div>
+      <div class="sb-label">POS</div>
+    </div>
+  </div>
+  <div class="hud-right scoreboard">
+    <div class="sb-block sb-dark">
+      <div class="sb-num sb-time" id="hud-time">0:00.0</div>
+      <div class="sb-label">MATCH TIME</div>
+    </div>
+    <div class="sb-block sb-dark">
+      <div class="sb-num sb-time" id="hud-best">—</div>
+      <div class="sb-label">BEST LAP</div>
+    </div>
+  </div>
+  <div id="hud-toast" class="hud-toast"></div>
+</div>
+
+<!-- ===== GRAPPLING MATCH ===== -->
+<div id="scramble" class="hidden">
+  <div class="scramble-panel">
+    <div class="scramble-head">
+      <div class="scramble-flash">GRAPPLING MATCH!</div>
+      <div class="sc-round" id="sc-round">1:00</div>
+    </div>
+    <div class="scramble-vs">YOU <em>VS</em> <span id="sc-them">—</span></div>
+    <div class="sc-scene-wrap">
+      <canvas id="sc-scene" width="440" height="170"></canvas>
+      <div class="sc-bubble hidden" id="sc-bubble"></div>
+    </div>
+    <div class="sc-position" id="sc-position">NEUTRAL — SCOOT-OFF</div>
+    <div class="sc-bar">
+      <span class="sc-bar-end bad">THEIR SUB</span>
+      <div class="sc-bar-track"><div class="sc-marker" id="sc-marker"></div></div>
+      <span class="sc-bar-end good">YOUR SUB</span>
+    </div>
+    <div id="sc-danger" class="sc-danger hidden"></div>
+    <div id="sc-feed" class="sc-feed">Slap. Bump. Grapple.</div>
+    <div class="scramble-moves" id="sc-moves">
+      <button class="sc-move" data-move="sweep"><span class="sc-key">1 / ←</span><b>SWEEP · ESCAPE</b><small>recover position · defend subs</small></button>
+      <button class="sc-move" data-move="pass"><span class="sc-key">2 / ↑</span><b>ADVANCE</b><small>improve position</small></button>
+      <button class="sc-move" data-move="submit"><span class="sc-key">3 / →</span><b id="sc-sub-name">SUBMIT</b><small>finish the fight</small></button>
+    </div>
+    <div id="sc-result" class="sc-result hidden">
+      <div class="sc-outcome" id="sc-outcome"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== COUNTDOWN ===== -->
+<div id="countdown" class="hidden"><span id="countdown-text">3</span></div>
+
+<!-- ===== RESULTS ===== -->
+<div id="screen-results" class="screen hidden">
+  <div class="results-panel">
+    <div class="results-medal" id="results-medal">🥇</div>
+    <h2 class="results-title" id="results-title">MATCH RESULT</h2>
+    <div class="results-sub" id="results-sub"></div>
+    <div id="results-rows" class="results-rows"></div>
+    <div class="results-times" id="results-times"></div>
+    <div class="results-recap hidden" id="results-recap"></div>
+    <div class="results-btns">
+      <button id="btn-again" class="btn btn-big">SCOOT AGAIN</button>
+      <button id="btn-menu" class="btn btn-ghost">NEW CHARACTER</button>
+    </div>
+  </div>
+</div>
+
+<button id="btn-mute" title="Sound on/off">🔊</button>
+
+<script src="game.js"></script>
+</body>
+</html>
