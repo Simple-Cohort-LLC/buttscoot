@@ -219,6 +219,11 @@ html, body {
   font-size: 21px;
   text-align: center;
   line-height: 1.05;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .char-belt-label {
   font-family: var(--font-mono);
@@ -226,6 +231,10 @@ html, body {
   letter-spacing: .25em;
   margin-top: 3px;
   color: #5c5647;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .char-tag {
   font-size: 12.5px;
@@ -235,6 +244,11 @@ html, body {
   color: #443f33;
   line-height: 1.3;
   min-height: 32px;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .stat-rows { width: 100%; margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
@@ -796,7 +810,25 @@ body.mobile #btn-reroll { display: none; }
 /* small screens */
 @media (max-height: 780px) {
   .char-card { width: 225px; height: 340px; }
-  #char-portrait { width: 130px; height: 130px; }
+  #char-portrait { width: 120px; height: 120px; }
   .screen { gap: 12px; }
   .game-title { font-size: clamp(36px, 7vw, 60px); }
+  .char-name { font-size: 16px; }
+  .char-belt-label { font-size: 9.5px; letter-spacing: .14em; }
+  .char-tag { font-size: 11px; min-height: 0; -webkit-line-clamp: 2; }
+  .stat-row .stat-name { width: 76px; font-size: 8.5px; }
+  .stat-pip { width: 14px; height: 9px; }
+}
+
+/* narrow (phone) screens — the card shrinks, so its text must too */
+@media (max-width: 480px) {
+  .char-card { width: 250px; height: 400px; }
+  #char-portrait { width: 140px; height: 140px; }
+  .char-name { font-size: 17px; }
+  .char-belt-label { font-size: 10px; letter-spacing: .16em; }
+  .char-tag { font-size: 11.5px; min-height: 0; }
+  .stat-row .stat-name { width: 82px; font-size: 9px; }
+  .stat-pip { width: 16px; }
+  .game-title { font-size: clamp(30px, 11vw, 46px); }
+  .title-sub { font-size: 10px; }
 }
