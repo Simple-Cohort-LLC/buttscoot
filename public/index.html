@@ -15,6 +15,11 @@
 
 <!-- ===== CHARACTER REVEAL / TITLE SCREEN ===== -->
 <div id="screen-card" class="screen">
+  <div id="mobile-note" class="mobile-note hidden">
+    🖥 <b>DESKTOP REQUIRED</b><br>
+    Buttscoot GP needs a keyboard — arrows to scoot, home row to grapple.<br>
+    Come back on a computer. Your thumbs can't butt scoot.
+  </div>
   <div class="title-block">
     <div class="title-oss">OSS! WELCOME TO THE</div>
     <h1 class="game-title"><span>BUTT</span><span class="title-scoot">SCOOT</span><span class="title-gp">GP</span></h1>
@@ -49,8 +54,9 @@
   </div>
 
   <button id="btn-start" class="btn btn-big">SLAP • BUMP • <em>SCOOT!</em></button>
+  <button id="btn-demo" class="btn btn-ghost">🤼 TRY A DEMO ROLL — grapple without racing</button>
   <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; (WASD works too)</div>
-  <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — 1 min round, any submission ends it</div>
+  <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — A · S · D · F · G on the mat, any submission ends it</div>
   <div class="ai-badge" id="ai-badge">✦ CLAUDE: CHECKING…</div>
 </div>
 
@@ -77,6 +83,7 @@
     </div>
   </div>
   <div id="hud-toast" class="hud-toast"></div>
+  <button id="btn-home-race" class="btn-home" title="Quit to home">🏠 HOME</button>
 </div>
 
 <!-- ===== GRAPPLING MATCH ===== -->
@@ -100,9 +107,11 @@
     <div id="sc-danger" class="sc-danger hidden"></div>
     <div id="sc-feed" class="sc-feed">Slap. Bump. Grapple.</div>
     <div class="scramble-moves" id="sc-moves">
-      <button class="sc-move" data-move="sweep"><span class="sc-key">1 / ←</span><b>SWEEP · ESCAPE</b><small>recover position · defend subs</small></button>
-      <button class="sc-move" data-move="pass"><span class="sc-key">2 / ↑</span><b>ADVANCE</b><small>improve position</small></button>
-      <button class="sc-move" data-move="submit"><span class="sc-key">3 / →</span><b id="sc-sub-name">SUBMIT</b><small>finish the fight</small></button>
+      <div class="sc-move" data-move="advance"><kbd>A</kbd><b>ADVANCE</b><small>improve position</small></div>
+      <div class="sc-move" data-move="sweep"><kbd>S</kbd><b>SWEEP</b><small>big reversal · best from bottom</small></div>
+      <div class="sc-move" data-move="defend"><kbd>D</kbd><b>DEFEND</b><small>escape subs · block their next move</small></div>
+      <div class="sc-move" data-move="submit"><kbd>F</kbd><b id="sc-sub-name">SUBMIT</b><small>finish the fight</small></div>
+      <div class="sc-move" data-move="gloat"><kbd>G</kbd><b>GLOAT</b><small>mind games · may backfire</small></div>
     </div>
     <div id="sc-result" class="sc-result hidden">
       <div class="sc-outcome" id="sc-outcome"></div>
@@ -125,6 +134,7 @@
     <div class="results-btns">
       <button id="btn-again" class="btn btn-big">SCOOT AGAIN</button>
       <button id="btn-menu" class="btn btn-ghost">NEW CHARACTER</button>
+      <button id="btn-home-results" class="btn btn-ghost">🏠 HOME</button>
     </div>
   </div>
 </div>

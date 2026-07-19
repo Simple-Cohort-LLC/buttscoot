@@ -1306,6 +1306,7 @@ const Game = {
     window.addEventListener('resize', () => this.layout());
     this.bindInput();
     this.bindUI();
+    this.checkMobile();
     ClaudeKit.init().then(() => this.rollCharacter(true));
     this.selectTrack(0);
     this.layout();
@@ -1326,6 +1327,7 @@ const Game = {
 
   /* ---------- layout ---------- */
   layout() {
+    this.checkMobile();
     const w = window.innerWidth, h = window.innerHeight;
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(w * this.dpr);
@@ -1384,12 +1386,9 @@ const Game = {
       document.getElementById('screen-card').classList.remove('hidden');
       this.rollCharacter();
     });
-    document.querySelectorAll('.sc-move').forEach(b => {
-      b.addEventListener('click', () => {
-        AudioKit.ensure();
-        this.playerAct(b.dataset.move);
-      });
-    });
+    document.getElementById('btn-demo').addEventListener('click', () => { AudioKit.ensure(); this.startDemoMatch(); });
+    document.getElementById('btn-home-race').addEventListener('click', () => { AudioKit.ensure(); this.goHome(); });
+    document.getElementById('btn-home-results').addEventListener('click', () => { AudioKit.ensure(); this.goHome(); });
     const muteBtn = document.getElementById('btn-mute');
     muteBtn.addEventListener('click', () => {
       AudioKit.ensure();
@@ -1495,8 +1494,47 @@ const Game = {
     ctx.restore();
   },
 
+  /* ---------- navigation / modes ---------- */
+  goHome() {
+    this.state = 'menu';
+    this.racers = [];
+    this.player = null;
+    (this.cdTimers || []).forEach(clearTimeout);
+    if (this.match) {
+      this.match = null;
+      document.getElementById('sc-bubble').classList.add('hidden');
+      document.getElementById('scramble').classList.add('hidden');
+    }
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('countdown').classList.add('hidden');
+    document.getElementById('screen-results').classList.add('hidden');
+    document.getElementById('screen-card').classList.remove('hidden');
+  },
+
+  /* a friendly roll straight from the home page — no race attached */
+  startDemoMatch() {
+    if (this.isMobile || this.match || !this.playerChar) return;
+    const mk = ch => ({
+      char: ch, speed: 0, topSpeed: 200, boostTimer: 0, stunTimer: 0,
+      x: 0, y: 0, scW: 0, scL: 0, scSubs: 0, finished: false,
+    });
+    const pool = [...CHARACTERS, ...AI_ROSTER].filter(c => c !== this.playerChar);
+    const opp = mk(pool[Math.floor(Math.random() * pool.length)]);
+    this.player = mk(this.playerChar);
+    this.player.isPlayer = true;
+    this.startMatch(opp, true);
+  },
+
+  checkMobile() {
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    this.isMobile = (coarse && 'ontouchstart' in window) || window.innerWidth < 700;
+    document.body.classList.toggle('mobile', this.isMobile);
+    document.getElementById('mobile-note').classList.toggle('hidden', !this.isMobile);
+  },
+
   /* ---------- race flow ---------- */
   startRace() {
+    if (this.isMobile) return;
     document.getElementById('screen-card').classList.add('hidden');
     document.getElementById('screen-results').classList.add('hidden');
     document.getElementById('hud').classList.remove('hidden');
@@ -1529,7 +1567,8 @@ const Game = {
     const steps = [
       ['3', false], ['2', false], ['1', false], ['COMBATE!', true],
     ];
-    steps.forEach(([txt, go], i) => {
+    (this.cdTimers || []).forEach(clearTimeout);
+    this.cdTimers = steps.map(([txt, go], i) =>
       setTimeout(() => {
         cdt.textContent = txt;
         cdt.classList.toggle('go', go);
@@ -1541,8 +1580,7 @@ const Game = {
           this.state = 'race';
           setTimeout(() => cd.classList.add('hidden'), 800);
         }
-      }, 700 * i + 300);
-    });
+      }, 700 * i + 300));
   },
 
   onPlayerFinish() {
@@ -1653,16 +1691,17 @@ const Game = {
     return { 3: 0.5, 2: 0.35, 1: 0.15, 0: 0.12, '-1': 0.28, '-2': 0.07, '-3': 0.05 }[adv] || 0.05;
   },
 
-  startMatch(opp) {
+  startMatch(opp, demo = false) {
     const m = this.match = {
-      opp, t: 60, adv: 0,
-      playerCd: 0, aiCd: 1.6, danger: null,
+      opp, demo, t: 60, adv: 0,
+      playerCd: 0, aiCd: 1.6, danger: null, guardUp: 0,
       over: false, closeT: 0, result: null,
       scenePhase: Math.random() * TAU,
       taunts: null, saidDominant: false, saidLosing: false,
       subFlash: 0, subFlashSub: null,
     };
     this.player.speed = opp.speed = 0;
+    if (demo) document.getElementById('screen-card').classList.add('hidden');
     document.getElementById('sc-them').textContent = opp.char.name;
     document.getElementById('sc-moves').classList.remove('hidden');
     document.getElementById('sc-result').classList.add('hidden');
@@ -1758,23 +1797,29 @@ const Game = {
     const m = this.match;
     if (!m || m.over || m.playerCd > 0) return;
 
-    /* sweep during a sub attempt = the defense */
-    if (kind === 'sweep' && m.danger) {
-      m.danger = null;
-      document.getElementById('sc-danger').classList.add('hidden');
-      document.querySelector('[data-move="sweep"]').classList.remove('defend-glow');
-      this.changeAdv(1);
-      this.setFeed('DEFENDED! You scrambled out. (+1 position)');
-      if (m.taunts?.gotDefended) this.showBubble(m.opp, m.taunts.gotDefended);
-      m.playerCd = 0.5;
+    const name = m.opp.char.name;
+
+    /* defend: escape a locked submission, or frame up to stuff their next move */
+    if (kind === 'defend') {
+      m.playerCd = 0.6;
+      if (m.danger) {
+        m.danger = null;
+        document.getElementById('sc-danger').classList.add('hidden');
+        document.querySelector('[data-move="defend"]').classList.remove('defend-glow');
+        this.changeAdv(1);
+        this.setFeed('DEFENDED! You scrambled out. (+1 position)');
+        if (m.taunts?.gotDefended) this.showBubble(m.opp, m.taunts.gotDefended);
+      } else {
+        m.guardUp = 2.5;
+        this.setFeed('You framed up — their next advance gets stuffed.');
+      }
       AudioKit.squeak();
       return;
     }
 
     m.playerCd = 0.75;
-    const name = m.opp.char.name;
 
-    if (kind === 'pass') {
+    if (kind === 'advance') {
       const p = clamp(0.65 - m.adv * 0.1, 0.2, 0.85);
       if (Math.random() < p) {
         this.changeAdv(1);
@@ -1810,6 +1855,16 @@ const Game = {
         this.setFeed(`${sub} attempt — ${name} wriggled free.`);
       }
       AudioKit.bump();
+    } else if (kind === 'gloat') {
+      if (Math.random() < 0.6) {
+        m.aiCd += 1.3;
+        this.setFeed(`You gloated. ${name} is FLUSTERED — they hesitate.`);
+        AudioKit.scWin();
+      } else {
+        this.changeAdv(-1);
+        this.setFeed(`You gloated mid-roll. ${name} made you pay. (-1)`);
+        AudioKit.scLose();
+      }
     }
   },
 
@@ -1829,14 +1884,18 @@ const Game = {
       const sub = this.pick(this.SUB_NAMES[oppAdv]);
       m.danger = { t: 1.05, sub };
       const dEl = document.getElementById('sc-danger');
-      dEl.textContent = `⚠ ${name} LOCKS UP A ${sub} — SWEEP (1/←) TO DEFEND!`;
+      dEl.textContent = `⚠ ${name} LOCKS UP A ${sub} — HIT D TO DEFEND!`;
       dEl.classList.remove('hidden');
-      document.querySelector('[data-move="sweep"]').classList.add('defend-glow');
+      document.querySelector('[data-move="defend"]').classList.add('defend-glow');
       if (m.taunts?.subAttempt && Math.random() < 0.7) this.showBubble(m.opp, m.taunts.subAttempt);
       AudioKit.scLose();
     } else if (action === 'pass') {
       const p = clamp(0.55 - oppAdv * 0.09, 0.15, 0.75) * aggro;
-      if (Math.random() < p) {
+      if (m.guardUp > 0) {
+        m.guardUp = 0;
+        this.setFeed(`${name} pushed in — your frames held! Blocked.`);
+        AudioKit.squeak();
+      } else if (Math.random() < p) {
         this.changeAdv(-1);
         this.setFeed(`${name} improved position! (-1)`);
         AudioKit.bump();
@@ -1845,7 +1904,11 @@ const Game = {
       }
     } else {
       const p = (0.26 + (oppAdv < 0 ? 0.26 : 0)) * aggro;
-      if (Math.random() < p) {
+      if (m.guardUp > 0) {
+        m.guardUp = 0;
+        this.setFeed(`${name} tried to sweep — your base held! Blocked.`);
+        AudioKit.squeak();
+      } else if (Math.random() < p) {
         this.changeAdv(-2);
         this.setFeed(`${name} REVERSED you! (-2)`);
         AudioKit.scLose();
@@ -1868,6 +1931,7 @@ const Game = {
     m.t -= dt;
     m.playerCd = Math.max(0, m.playerCd - dt);
     m.subFlash = Math.max(0, m.subFlash - dt);
+    m.guardUp = Math.max(0, (m.guardUp || 0) - dt);
     const cooling = m.playerCd > 0.05;
     if (cooling !== m.coolShown) {
       m.coolShown = cooling;
@@ -1881,7 +1945,7 @@ const Game = {
         const oppAdv = -m.adv;
         m.danger = null;
         document.getElementById('sc-danger').classList.add('hidden');
-        document.querySelector('[data-move="sweep"]').classList.remove('defend-glow');
+        document.querySelector('[data-move="defend"]').classList.remove('defend-glow');
         if (Math.random() < this.subChance(oppAdv) * 1.15) {
           this.endMatch({ type: 'subbed', sub });
           return;
@@ -1914,7 +1978,7 @@ const Game = {
     m.danger = null;
     document.getElementById('sc-danger').classList.add('hidden');
     document.getElementById('sc-moves').classList.add('hidden');
-    document.querySelector('[data-move="sweep"]').classList.remove('defend-glow');
+    document.querySelector('[data-move="defend"]').classList.remove('defend-glow');
     const outEl = document.getElementById('sc-outcome');
     outEl.classList.remove('good', 'bad');
     const name = m.opp.char.name;
@@ -1954,6 +2018,15 @@ const Game = {
 
   closeMatch() {
     const m = this.match;
+    if (m.demo) {
+      /* demo roll from the home page: just return to the menu */
+      this.match = null;
+      this.player = null;
+      document.getElementById('sc-bubble').classList.add('hidden');
+      document.getElementById('scramble').classList.add('hidden');
+      document.getElementById('screen-card').classList.remove('hidden');
+      return;
+    }
     const opp = m.opp, pl = this.player;
 
     /* separate them so they don't instantly re-collide */
@@ -2148,9 +2221,7 @@ const Game = {
       ArrowRight: 'right', KeyD: 'right',
     };
     const scMap = {
-      Digit1: 'sweep', ArrowLeft: 'sweep', KeyA: 'sweep',
-      Digit2: 'pass', ArrowUp: 'pass', KeyW: 'pass',
-      Digit3: 'submit', ArrowRight: 'submit', KeyD: 'submit',
+      KeyA: 'advance', KeyS: 'sweep', KeyD: 'defend', KeyF: 'submit', KeyG: 'gloat',
     };
     window.addEventListener('keydown', e => {
       if (this.match && !this.match.over) {
@@ -2169,10 +2240,10 @@ const Game = {
 
   /* ---------- sim ---------- */
   update(dt) {
-    if (this.state === 'menu') return;
-
-    /* the race pauses entirely while a grappling match runs */
+    /* a grappling match (mid-race or demo roll from the menu) owns the clock */
     if (this.match) { this.updateMatch(dt); return; }
+
+    if (this.state === 'menu') return;
 
     if (this.state === 'race') this.raceTime += dt;
 
@@ -2398,6 +2469,59 @@ const Game = {
     ctx.restore();
   },
 
+  /* side-view of your racer mid-scoot, so nobody mistakes what's happening */
+  drawScootCam(ctx, w, h) {
+    const p = this.player;
+    if (!p || !p.char) return;
+    const CW = 158, CH = 96;
+    const px = w - CW - 14, py = h - CH - 66;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.fillStyle = 'rgba(12,17,14,0.65)';
+    ctx.beginPath(); ctx.roundRect(0, 0, CW, CH, 10); ctx.fill();
+    ctx.strokeStyle = 'rgba(243,239,228,0.2)';
+    ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(0, 0, CW, CH, 10); ctx.clip();
+
+    const ch = p.char;
+    const mv = Math.min(1, p.speed / 60);
+    const ph = p.phase;
+    const bob = Math.max(0, Math.sin(ph)) * mv * 3;
+    const G = 80;
+
+    /* mat line */
+    ctx.strokeStyle = 'rgba(243,239,228,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(8, G + 6); ctx.lineTo(CW - 8, G + 6); ctx.stroke();
+
+    /* speed lines behind */
+    if (p.speed > 100) {
+      ctx.strokeStyle = p.boostTimer > 0 ? 'rgba(244,197,66,0.8)' : 'rgba(243,239,228,0.35)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const yy = 42 + i * 14;
+        const len = 10 + ((ph * 60 + i * 23) % 16);
+        ctx.beginPath(); ctx.moveTo(28 - len, yy); ctx.lineTo(28, yy); ctx.stroke();
+      }
+    }
+
+    const hipX = 66, hipY = G - 6 - bob * 0.4;
+    const kick = Math.sin(ph) * 9 * mv;
+    /* pushing arm behind, legs kicking forward, torso leaned back, head proud */
+    MatchScene.arm(ctx, ch, hipX - 12, hipY - 22 - bob, hipX - 27 - Math.max(0, Math.sin(ph)) * 5 * mv, G + 3, 4, 5);
+    MatchScene.leg(ctx, ch, hipX, hipY, hipX + 22, hipY - 8 - Math.max(0, kick) * 0.5, hipX + 42 + kick, G + 3, 6);
+    MatchScene.leg(ctx, ch, hipX + 2, hipY + 2, hipX + 20, hipY - 4 + Math.max(0, kick) * 0.4, hipX + 40 - kick, G + 5, 6);
+    MatchScene.torso(ctx, ch, hipX, hipY, hipX - 10, hipY - 28 - bob, 13);
+    MatchScene.arm(ctx, ch, hipX - 6, hipY - 24 - bob, hipX + 15, hipY - 14 - bob, 4, 5);
+    MatchScene.head(ctx, ch, hipX - 13, hipY - 40 - bob, 8.5, 1, p.stunTimer > 0);
+
+    ctx.font = '700 9px "Chivo Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(244,197,66,0.9)';
+    ctx.fillText('SCOOT CAM · YOU', 10, 15);
+    ctx.restore();
+  },
+
   /* ---------- present ---------- */
   render(t) {
     const ctx = this.ctx;
@@ -2433,6 +2557,7 @@ const Game = {
     /* crisp screen-space overlays */
     ctx.imageSmoothingEnabled = true;
     this.drawMinimap(ctx, w, h);
+    this.drawScootCam(ctx, w, h);
   },
 };
 
