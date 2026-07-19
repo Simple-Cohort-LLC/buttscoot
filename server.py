@@ -9,6 +9,7 @@ browser JS. Run with:
 Without a key the game still works — it just uses its built-in roster and
 scripted commentary.
 """
+import base64
 import json
 import os
 import urllib.error
@@ -46,6 +47,17 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        if self.path == '/api/save-og':
+            # local-dev helper only (not in the production Worker): save a
+            # jpeg data-URL from the page as the social preview image
+            length = int(self.headers.get('Content-Length', 0))
+            data = self.rfile.read(length).decode()
+            prefix = 'data:image/jpeg;base64,'
+            if not data.startswith(prefix):
+                return self._json(400, {'error': 'expected a jpeg data url'})
+            with open(os.path.join(ROOT, 'og.jpg'), 'wb') as f:
+                f.write(base64.b64decode(data[len(prefix):]))
+            return self._json(200, {'ok': True})
         if self.path != '/api/claude':
             return self._json(404, {'error': 'not found'})
         if not API_KEY:

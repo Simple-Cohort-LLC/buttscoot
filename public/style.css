@@ -445,7 +445,17 @@ html, body {
 .results-times { font-family: var(--font-mono); font-size: 12.5px; color: #443f33; margin-bottom: 16px; line-height: 1.6; }
 .results-times b { color: var(--danger-red-deep); }
 
-.results-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.results-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; }
+
+/* ghost buttons sit on the light results panel — dark text there */
+.results-panel .btn-ghost {
+  color: #443f33;
+  border-color: rgba(16,19,15,.35);
+}
+.results-panel .btn-ghost:hover {
+  color: var(--danger-red-deep);
+  border-color: var(--danger-red-deep);
+}
 
 /* ============ MUTE ============ */
 #btn-mute {
