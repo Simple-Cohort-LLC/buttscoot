@@ -10,6 +10,9 @@ around tatami-mat tracks — and settle collisions with real grappling matches.
 - **Bump a rival → GRAPPLING MATCH**: the race pauses for a 1-minute round on a
   position ladder (guard → side control → mount). Sweep, advance, or hunt the
   submission — any tap ends it instantly
+- **Items**: grab gear bags on the track — 🥋 Flow Roll (bump rivals without
+  triggering a match), 🍓 Açaí Bowl (clears daze + speed burst), 💦 Mystery Mat
+  Puddle (drop it behind you, gross). SPACE to use; trailing racers get better luck
 - **Claude-powered extras** (optional): AI-generated characters, personality-matched
   trash talk during matches, and a ringside announcer recap after every race
 

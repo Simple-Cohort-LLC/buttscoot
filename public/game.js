@@ -85,6 +85,7 @@ const TRACKS = [
       [320, 760], [170, 500],
     ],
     boostS: [0.28, 0.78],
+    bagS: [0.12, 0.45, 0.62, 0.92],
   },
   {
     id: 'bolo', name: 'BERIMBOLO BEND', sub: 'THE SPIN CYCLE',
@@ -97,6 +98,7 @@ const TRACKS = [
       [950, 850], [640, 720], [330, 830], [160, 600],
     ],
     boostS: [0.22, 0.55, 0.85],
+    bagS: [0.1, 0.38, 0.7, 0.95],
   },
   {
     id: 'worlds', name: 'WORLDS ARENA', sub: 'BLACK BELT FINAL · HAIRPIN OF DOOM',
@@ -110,8 +112,16 @@ const TRACKS = [
       [900, 900], [420, 840], [190, 640], [300, 430],
     ],
     boostS: [0.30, 0.68, 0.93],
+    bagS: [0.15, 0.45, 0.6, 0.85],
   },
 ];
+
+/* ---------------- Items ---------------- */
+const ITEM_DEFS = {
+  flow:   { icon: '🥋', name: 'FLOW ROLL' },
+  acai:   { icon: '🍓', name: 'AÇAÍ BOWL' },
+  puddle: { icon: '💦', name: 'MAT PUDDLE' },
+};
 
 /* ---------------- Utils ---------------- */
 const TAU = Math.PI * 2;
@@ -165,6 +175,11 @@ const AudioKit = {
   beep(final) { this.tone(final ? 880 : 440, final ? 0.4 : 0.15, 'square', 0.12); },
   lap() { this.tone(660, 0.1, 'square', 0.1); this.tone(880, 0.14, 'square', 0.1, null, 0.1); },
   whistle() { this.tone(2350, 0.1, 'square', 0.08, 2000); this.tone(2350, 0.16, 'square', 0.08, 1850, 0.13); },
+  pickup() { this.tone(700, 0.06, 'square', 0.08); this.tone(1050, 0.09, 'square', 0.08, null, 0.06); },
+  flowOn() { this.tone(520, 0.3, 'triangle', 0.09, 780); },
+  slurp() { this.tone(260, 0.28, 'triangle', 0.1, 720); },
+  splat() { this.tone(190, 0.16, 'sawtooth', 0.1, 90); },
+  slip() { this.tone(950, 0.35, 'triangle', 0.09, 180); },
   scWin() { this.tone(523, 0.12, 'square', 0.1); this.tone(784, 0.2, 'square', 0.1, null, 0.1); },
   scLose() { this.tone(300, 0.3, 'sawtooth', 0.1, 130); },
   fanfare() {
@@ -311,6 +326,16 @@ class Track {
       const p = this.sampleAt(s);
       return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, s };
     });
+    /* gear bags: item pickups, one either side of the racing line */
+    this.bags = [];
+    for (const s of (this.def.bagS || [])) {
+      const p = this.sampleAt(s);
+      const nx = -p.dirY, ny = p.dirX;
+      for (const side of [-1, 1]) {
+        const off = side * this.width * 0.22;
+        this.bags.push({ x: p.x + nx * off, y: p.y + ny * off, s, activeAt: 0 });
+      }
+    }
   }
 
   sampleAt(s) {
@@ -601,6 +626,11 @@ class Racer {
     this.scW = 0;
     this.scL = 0;
     this.scSubs = 0;
+    this.item = null;
+    this.flowTimer = 0;
+    this.slipTimer = 0;
+    this.aiItemAt = 0;
+    this.rank = 4;
 
     if (!isPlayer) {
       this.aiSkill = 0.86 + Math.random() * 0.12;
@@ -625,6 +655,12 @@ class Racer {
       this.stunTimer = Math.max(0, this.stunTimer - dt);
       thrust = 0; steer = 0; brake = true;
     }
+    if (this.slipTimer > 0) {
+      this.slipTimer = Math.max(0, this.slipTimer - dt);
+      thrust = 0; steer = 0; brake = false;
+      this.heading += 9 * dt; // spin-out
+    }
+    this.flowTimer = Math.max(0, this.flowTimer - dt);
     this.lean = lerp(this.lean, steer, 1 - Math.exp(-8 * dt));
 
     /* scoot pulse: thrust arrives in rhythmic pushes */
@@ -733,6 +769,7 @@ class Racer {
   /* drawn in world units around ground point (0,0); caller scales by f/z */
   drawSprite(ctx, relA) {
     const ch = this.char;
+    if (this.slipTimer > 0) relA += this.slipTimer * 18; // spin-out twirl
     const bob = Math.max(0, Math.sin(this.phase)) * Math.min(1, this.speed / 60) * 3.4;
     const cosF = Math.cos(relA);   // 1 = facing away (back view), -1 = facing camera
     const sinF = Math.sin(relA);
@@ -740,6 +777,16 @@ class Racer {
     const beltC = BELT_COLORS[ch.belt];
 
     ctx.save();
+
+    /* flow-roll aura */
+    if (this.flowTimer > 0) {
+      const a = 0.32 + 0.14 * Math.sin(this.flowTimer * 9);
+      const g = ctx.createRadialGradient(0, -16, 4, 0, -16, 34);
+      g.addColorStop(0, `rgba(244,197,66,${a})`);
+      g.addColorStop(1, 'rgba(244,197,66,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, -16, 34, 0, TAU); ctx.fill();
+    }
 
     /* boost flames */
     if (this.boostTimer > 0) {
@@ -864,7 +911,7 @@ class Racer {
     /* face when turned toward camera */
     if (cosF < -0.35) {
       ctx.fillStyle = '#10130f';
-      if (this.stunTimer > 0) { // dazed X eyes
+      if (this.stunTimer > 0 || this.slipTimer > 0) { // dazed X eyes
         ctx.strokeStyle = '#10130f';
         ctx.lineWidth = 1.2;
         for (const ex of [-2.8, 2.8]) {
@@ -882,12 +929,12 @@ class Racer {
       }
     }
 
-    /* dizzy stars while stunned */
-    if (this.stunTimer > 0) {
+    /* dizzy stars while stunned or slipping */
+    if (this.stunTimer > 0 || this.slipTimer > 0) {
       ctx.fillStyle = '#f4c542';
       ctx.font = '8px sans-serif';
       ctx.textAlign = 'center';
-      const a0 = this.stunTimer * 5;
+      const a0 = Math.max(this.stunTimer, this.slipTimer) * 5;
       for (let i = 0; i < 3; i++) {
         const a = a0 + (i * TAU) / 3;
         ctx.fillText('✶', hx + Math.cos(a) * 12, -46 + Math.sin(a) * 3);
@@ -1299,6 +1346,7 @@ const Game = {
   confetti: [],
   miniPts: null, miniBox: null,
   match: null, matchCdUntil: 0,
+  puddles: [],
 
   init() {
     this.canvas = document.getElementById('game');
@@ -1553,6 +1601,9 @@ const Game = {
     this.confetti = [];
     this.match = null;
     this.matchCdUntil = 0;
+    this.puddles = [];
+    for (const bag of this.track.bags) bag.activeAt = 0;
+    document.getElementById('hud-item').classList.add('hidden');
     document.getElementById('scramble').classList.add('hidden');
     this.updateBestLapHud();
 
@@ -2248,6 +2299,14 @@ const Game = {
         if (m) { e.preventDefault(); AudioKit.ensure(); this.playerAct(m); }
         return;
       }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (this.state === 'race' && this.player && !this.match) {
+          AudioKit.ensure();
+          this.useItem(this.player);
+        }
+        return;
+      }
       const k = map[e.code];
       if (k) { this.input[k] = true; e.preventDefault(); AudioKit.ensure(); }
     });
@@ -2279,7 +2338,17 @@ const Game = {
           const overlap = (R - d) / 2;
           a.x -= nx * overlap; a.y -= ny * overlap;
           b.x += nx * overlap; b.y += ny * overlap;
-          a.speed *= 0.9; b.speed *= 0.9;
+          const aFlow = a.flowTimer > 0, bFlow = b.flowTimer > 0;
+          if (aFlow !== bFlow) {
+            /* flow-roller barges through; the other gets shoved off line */
+            const dir = aFlow ? 1 : -1;
+            const victim = aFlow ? b : a;
+            victim.x += nx * 22 * dir; victim.y += ny * 22 * dir;
+            victim.speed *= 0.55;
+            victim.bump = 1;
+          } else {
+            a.speed *= 0.9; b.speed *= 0.9;
+          }
           if (a.bump < 0.1 && (a.isPlayer || b.isPlayer)) AudioKit.bump();
           a.bump = b.bump = 1;
 
@@ -2291,6 +2360,7 @@ const Game = {
             this.raceTime > this.matchCdUntil &&
             !pl.finished && !other.finished &&
             pl.stunTimer <= 0 && other.stunTimer <= 0 &&
+            pl.flowTimer <= 0 && other.flowTimer <= 0 &&
             Math.max(a.speed, b.speed) > 70
           ) {
             this.startMatch(other);
@@ -2317,16 +2387,109 @@ const Game = {
     this.confetti = this.confetti.filter(c => c.life > 0);
 
     if (this.state === 'race' && this.player) {
-      document.getElementById('hud-lap').textContent = Math.min(this.totalLaps, this.player.lap);
-      document.getElementById('hud-time').textContent = fmtTime(this.raceTime);
       const rank = [...this.racers].sort((x, y) => {
         if (x.finished && y.finished) return x.finishTime - y.finishTime;
         if (x.finished) return -1;
         if (y.finished) return 1;
         return y.progress - x.progress;
       });
-      document.getElementById('hud-pos').textContent = rank.indexOf(this.player) + 1;
+      rank.forEach((r, i) => { r.rank = i + 1; });
+      this.updateItems(dt);
+      document.getElementById('hud-lap').textContent = Math.min(this.totalLaps, this.player.lap);
+      document.getElementById('hud-time').textContent = fmtTime(this.raceTime);
+      document.getElementById('hud-pos').textContent = this.player.rank;
     }
+  },
+
+  /* ---------- items ---------- */
+  rollItem(rank) {
+    const table = {
+      1: [['flow', 0.5], ['puddle', 0.4], ['acai', 0.1]],
+      2: [['flow', 0.35], ['puddle', 0.35], ['acai', 0.3]],
+      3: [['flow', 0.25], ['puddle', 0.25], ['acai', 0.5]],
+      4: [['flow', 0.15], ['puddle', 0.15], ['acai', 0.7]],
+    }[clamp(rank, 1, 4)];
+    let roll = Math.random();
+    for (const [item, w] of table) { if ((roll -= w) <= 0) return item; }
+    return 'acai';
+  },
+
+  updateItems(dt) {
+    for (const r of this.racers) {
+      if (r.finished) continue;
+
+      /* gear bag pickups */
+      if (!r.item) {
+        for (const bag of this.track.bags) {
+          if (this.raceTime < bag.activeAt) continue;
+          if (dist2(r.x, r.y, bag.x, bag.y) < 28 * 28) {
+            bag.activeAt = this.raceTime + 5;
+            r.item = this.rollItem(r.rank);
+            r.aiItemAt = this.raceTime + 1 + Math.random() * 3;
+            if (r.isPlayer) {
+              AudioKit.pickup();
+              this.updateItemHud();
+              this.toast(`${ITEM_DEFS[r.item].icon} ${ITEM_DEFS[r.item].name}!`);
+            }
+            break;
+          }
+        }
+      } else if (!r.isPlayer) {
+        /* AI: açaí the instant they're dazed, otherwise use on their own clock */
+        if ((r.item === 'acai' && r.stunTimer > 0) || this.raceTime >= r.aiItemAt) {
+          this.useItem(r);
+        }
+      }
+
+      /* mystery puddle slips */
+      for (let i = this.puddles.length - 1; i >= 0; i--) {
+        const p = this.puddles[i];
+        if (this.raceTime < p.armAt) continue;
+        if (p.owner === r && this.raceTime < p.armAt + 1.2) continue;
+        if (dist2(r.x, r.y, p.x, p.y) < 26 * 26) {
+          this.puddles.splice(i, 1);
+          r.slipTimer = 1.3;
+          r.speed *= 0.35;
+          r.bump = 1;
+          AudioKit.slip();
+          if (r.isPlayer) this.toast('SLIPPED ON A MYSTERY PUDDLE! EW!');
+        }
+      }
+    }
+  },
+
+  useItem(r) {
+    const it = r.item;
+    if (!it) return;
+    r.item = null;
+    if (it === 'flow') {
+      r.flowTimer = 6;
+      if (r.isPlayer) { this.toast('FLOW STATE — BUMP FREELY!'); AudioKit.flowOn(); }
+    } else if (it === 'acai') {
+      r.stunTimer = 0;
+      r.slipTimer = 0;
+      r.boostTimer = 1.8;
+      r.speed = Math.max(r.speed, r.topSpeed * 1.55);
+      if (r.isPlayer) { this.toast('AÇAÍ POWER!'); AudioKit.slurp(); }
+    } else if (it === 'puddle') {
+      this.puddles.push({
+        x: r.x - Math.cos(r.heading) * 48,
+        y: r.y - Math.sin(r.heading) * 48,
+        owner: r,
+        armAt: this.raceTime + 0.4,
+      });
+      if (r.isPlayer) { this.toast('PUDDLE DEPLOYED. GROSS.'); AudioKit.splat(); }
+    }
+    if (r.isPlayer) this.updateItemHud();
+  },
+
+  updateItemHud() {
+    const el = document.getElementById('hud-item');
+    const it = this.player?.item;
+    if (!it) { el.classList.add('hidden'); return; }
+    document.getElementById('hud-item-icon').textContent = ITEM_DEFS[it].icon;
+    document.getElementById('hud-item-label').textContent = ITEM_DEFS[it].name;
+    el.classList.remove('hidden');
   },
 
   /* ---------- mode-7 scene ---------- */
@@ -2397,17 +2560,42 @@ const Game = {
     ctx.fillStyle = fog;
     ctx.fillRect(0, hor, W, 46);
 
+    /* --- projection helper for world points --- */
+    const project = (wx, wy) => {
+      const relX = wx - cam.x, relY = wy - cam.y;
+      const zf = relX * fwdX + relY * fwdY;
+      if (zf < 8 || zf > this.maxDist) return null;
+      const lat = relX * rightX + relY * rightY;
+      return { zf, sx: W / 2 + (lat * f) / zf, sy: hor + (camH * f) / zf };
+    };
+
+    /* --- mystery puddles: ground decals, before everything upright --- */
+    for (const pd of this.puddles) {
+      const pr = project(pd.x, pd.y);
+      if (!pr) continue;
+      const rx = (26 * f) / pr.zf;
+      if (pr.sx < -rx || pr.sx > W + rx) continue;
+      ctx.fillStyle = 'rgba(96,160,215,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(pr.sx, pr.sy, rx, rx * 0.32, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(230,245,255,0.5)';
+      ctx.lineWidth = Math.max(1, rx * 0.06);
+      ctx.stroke();
+    }
+
     /* --- sprites, far to near --- */
     const sprites = [];
     for (const r of this.racers) {
-      const relX = r.x - cam.x, relY = r.y - cam.y;
-      const zf = relX * fwdX + relY * fwdY;
-      if (zf < 8 || zf > this.maxDist) continue;
-      const lat = relX * rightX + relY * rightY;
-      const sx = W / 2 + (lat * f) / zf;
-      const sy = hor + (camH * f) / zf;
-      if (sx < -80 || sx > W + 80) continue;
-      sprites.push({ zf, sx, sy, r });
+      const pr = project(r.x, r.y);
+      if (!pr || pr.sx < -80 || pr.sx > W + 80) continue;
+      sprites.push({ ...pr, r });
+    }
+    for (const bag of tr.bags) {
+      if (this.raceTime < bag.activeAt) continue;
+      const pr = project(bag.x, bag.y);
+      if (!pr || pr.sx < -60 || pr.sx > W + 60) continue;
+      sprites.push({ ...pr, bag });
     }
     sprites.sort((a, b) => b.zf - a.zf);
     for (const s of sprites) {
@@ -2415,7 +2603,8 @@ const Game = {
       ctx.save();
       ctx.translate(s.sx, s.sy);
       ctx.scale(sc, sc);
-      s.r.drawSprite(ctx, angleWrap(s.r.heading - cam.yaw));
+      if (s.bag) this.drawBagSprite(ctx, t, s.bag.s * 50);
+      else s.r.drawSprite(ctx, angleWrap(s.r.heading - cam.yaw));
       ctx.restore();
     }
 
@@ -2441,6 +2630,29 @@ const Game = {
         ctx.stroke();
       }
     }
+  },
+
+  /* gym duffel with a "?" patch — the item pickup */
+  drawBagSprite(ctx, t, seed) {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 13, 4, 0, 0, TAU);
+    ctx.fill();
+    const bob = Math.sin(t * 3 + seed) * 2;
+    ctx.save();
+    ctx.translate(0, -bob);
+    ctx.fillStyle = '#23282c';
+    ctx.strokeStyle = 'rgba(16,19,15,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(-12, -18, 24, 16, 5); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -18, 6, Math.PI, TAU); ctx.stroke(); // strap
+    ctx.fillStyle = '#f4c542';
+    ctx.beginPath(); ctx.arc(0, -10, 6, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#10130f';
+    ctx.font = '900 9px Archivo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('?', 0, -7);
+    ctx.restore();
   },
 
   drawMinimap(ctx, w, h) {
@@ -2473,8 +2685,14 @@ const Game = {
     ctx.fillStyle = '#f3efe4';
     ctx.fillRect(s0[0] - 2, s0[1] - 2, 4, 4);
 
-    /* racers */
+    /* racers + hazards */
     const { sc, ox, oy } = this.miniBox;
+    for (const pd of this.puddles) {
+      ctx.beginPath();
+      ctx.arc(pd.x * sc + ox, pd.y * sc + oy, 2.5, 0, TAU);
+      ctx.fillStyle = 'rgba(120,180,230,0.9)';
+      ctx.fill();
+    }
     for (const r of this.racers) {
       const mx = r.x * sc + ox, my = r.y * sc + oy;
       ctx.beginPath();

@@ -70,7 +70,7 @@
 
   <button id="btn-start" class="btn btn-big">SLAP • BUMP • <em>SCOOT!</em></button>
   <button id="btn-demo" class="btn btn-ghost">🤼 TRY A DEMO ROLL — grapple without racing</button>
-  <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; (WASD works too)</div>
+  <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; SPACE use item &nbsp;·&nbsp; (WASD works too)</div>
   <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — A · S · D · F · G on the mat, any submission ends it</div>
   <div class="ai-badge" id="ai-badge">✦ CLAUDE: CHECKING…</div>
 </div>
@@ -99,6 +99,13 @@
   </div>
   <div id="hud-toast" class="hud-toast"></div>
   <button id="btn-home-race" class="btn-home" title="Quit to home">🏠 HOME</button>
+  <div id="hud-item" class="hud-item hidden">
+    <span id="hud-item-icon">🥋</span>
+    <div>
+      <div class="hud-item-label" id="hud-item-label">FLOW ROLL</div>
+      <div class="hud-item-key">SPACE TO USE</div>
+    </div>
+  </div>
 </div>
 
 <!-- ===== GRAPPLING MATCH ===== -->

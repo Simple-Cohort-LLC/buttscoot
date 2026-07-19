@@ -621,6 +621,25 @@ html, body {
 }
 .btn-home:hover { border-color: var(--gold); color: var(--gold); }
 
+.hud-item {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #232d27, #161d19);
+  border: 2px solid rgba(244,197,66,.7);
+  box-shadow: 0 4px 0 rgba(0,0,0,.35), 0 8px 20px rgba(0,0,0,.35);
+  animation: dropIn .3s cubic-bezier(.2,1.4,.4,1) both;
+}
+.hud-item span { font-size: 26px; }
+.hud-item-label { font-family: var(--font-display); font-size: 14px; color: var(--tape-white); }
+.hud-item-key { font-family: var(--font-mono); font-size: 9px; letter-spacing: .2em; color: var(--gold); margin-top: 2px; }
+
 #btn-demo { font-size: 13px; }
 
 .mobile-note {
