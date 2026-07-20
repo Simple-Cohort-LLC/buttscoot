@@ -377,10 +377,12 @@ const AuthKit = {
     (options.excludeCredentials || []).forEach(c => { c.id = this.b64uToBuf(c.id); });
     const cred = await this.ceremony(() => navigator.credentials.create({ publicKey: options }));
     delete this._optCache.register;
+    const payload = this.credToJSON(cred);
+    payload.userName = options.user.name; // scooter-xxxxxxxx becomes the starting name
     const vr = await fetch('/api/auth/register/verify', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(this.credToJSON(cred)),
+      body: JSON.stringify(payload),
     });
     const j = await vr.json();
     if (!vr.ok) throw new Error(j.error || 'registration failed');
