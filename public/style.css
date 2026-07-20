@@ -629,6 +629,52 @@ body.modal-open .char-card { visibility: hidden; }
   height: 24px;
 }
 
+/* ============ PROMOTION + HISTORY ============ */
+.promo-medal { font-size: 52px; line-height: 1; animation: medalSpin 1s cubic-bezier(.2,1.3,.4,1) both .15s; }
+.promo-belt {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 26px;
+  margin: 14px auto 4px;
+  width: 82%;
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+  /* stripes live on the black rank bar, like a real belt */
+  background: linear-gradient(90deg, var(--belt-color, #f2efe6) 0 60%, #191919 60%);
+  padding: 4px 14px 4px 4px;
+}
+.promo-belt span {
+  width: 9px;
+  border-radius: 2px;
+  background: var(--tape-white);
+  border: 1.5px solid rgba(16,19,15,.5);
+  opacity: 0;
+}
+.promo-belt span.on { opacity: 1; animation: dropIn .3s both; }
+
+.profile-history-wrap { margin-top: 14px; text-align: left; }
+.pf-history-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .2em;
+  color: #5c5647;
+  margin-bottom: 6px;
+}
+.profile-history {
+  max-height: 130px;
+  overflow-y: auto;
+  border: 2px solid rgba(16,19,15,.25);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.8;
+  color: #443f33;
+}
+.profile-history b { color: var(--ink); }
+
 /* ============ MUTE ============ */
 #btn-mute {
   position: fixed;

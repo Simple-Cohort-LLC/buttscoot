@@ -412,6 +412,25 @@ const AuthKit = {
     this.profile = null;
   },
 
+  async reportRace(payload) {
+    const r = await fetch('/api/progress/race', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'report failed');
+    this.profile = j.profile;
+    return j; // { profile, awarded, dailyMultiplier, promotion }
+  },
+
+  async history() {
+    const r = await fetch('/api/history');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'history failed');
+    return j.entries || [];
+  },
+
   async saveProfile(fields) {
     const r = await fetch('/api/profile', {
       method: 'PUT',
@@ -1696,6 +1715,10 @@ const Game = {
         this.applyProfile();
       } catch (e) { authErr(e); }
     });
+    document.getElementById('btn-promo-done').addEventListener('click', () => {
+      this.hideModal('modal-promotion');
+      this.applyProfile(); // card + chip reflect the new rank
+    });
     document.getElementById('btn-recovery-done').addEventListener('click', () => {
       this.hideModal('modal-recovery');
       this.openProfileModal(); // straight into naming your grappler
@@ -1731,6 +1754,24 @@ const Game = {
       document.getElementById(id).addEventListener('input', () => this.drawProfilePreview()));
   },
 
+  showPromotion(promo) {
+    const isBelt = promo.type === 'belt';
+    document.getElementById('promo-title').textContent = isBelt
+      ? `PROMOTED — ${promo.belt.toUpperCase()} BELT!`
+      : `STRIPE EARNED — ${promo.belt.toUpperCase()} BELT · ${promo.stripes}`;
+    document.getElementById('promo-sub').textContent = isBelt
+      ? 'New belt, same butt. The whole gym claps you off the mats.'
+      : 'The professor nods and tapes it on. Back to scooting.';
+    const beltEl = document.getElementById('promo-belt');
+    beltEl.style.setProperty('--belt-color', BELT_COLORS[promo.belt]);
+    beltEl.querySelectorAll('span').forEach((s, i) => {
+      s.classList.toggle('on', i < promo.stripes);
+      s.style.animationDelay = `${0.3 + i * 0.15}s`;
+    });
+    this.showModal('modal-promotion');
+    AudioKit.fanfare();
+  },
+
   openProfileModal() {
     const p = AuthKit.profile;
     if (!p) return;
@@ -1744,7 +1785,30 @@ const Game = {
     document.getElementById('profile-error').classList.add('hidden');
     this.buildSwatches();
     this.drawProfilePreview();
+    this.loadHistory();
     this.showModal('modal-profile');
+  },
+
+  async loadHistory() {
+    const el = document.getElementById('profile-history');
+    el.textContent = 'loading…';
+    try {
+      const entries = await AuthKit.history();
+      if (!entries.length) {
+        el.textContent = 'No races yet — the mats are waiting.';
+        return;
+      }
+      const names = { oval: 'WHITE BELT OVAL', bolo: 'BERIMBOLO BEND', worlds: 'WORLDS ARENA' };
+      el.innerHTML = entries.map(e => {
+        const d = new Date(e.at * 1000);
+        const date = `${d.getMonth() + 1}/${d.getDate()}`;
+        const medal = e.place === 1 ? '🥇' : e.place === 2 ? '🥈' : e.place === 3 ? '🥉' : '·';
+        const matches = (e.mw || e.ml) ? ` · matches ${e.mw}–${e.ml}${e.subs ? ` (${e.subs} subs)` : ''}` : '';
+        return `${medal} <b>P${e.place}</b> ${names[e.track] || e.track} · ${fmtTime(e.raceTime)}${matches} · <b>+${e.pts}</b> · ${date}`;
+      }).join('<br>');
+    } catch (err) {
+      el.textContent = 'Could not load history.';
+    }
   },
 
   buildSwatches() {
@@ -1955,6 +2019,7 @@ const Game = {
     this.player = this.racers[0];
     this.raceTime = 0;
     this.confetti = [];
+    this._raceReported = false;
     this.match = null;
     this.matchCdUntil = 0;
     this.puddles = [];
@@ -2062,6 +2127,27 @@ const Game = {
       recapEl.appendChild(document.createTextNode(txt));
       recapEl.classList.remove('hidden');
     });
+
+    /* signed-in races earn mat points toward stripes and belts */
+    if (AuthKit.profile && !this._raceReported) {
+      this._raceReported = true;
+      AuthKit.reportRace({
+        track: this.trackDef.id,
+        place,
+        raceTime: this.player.finishTime ?? this.raceTime,
+        bestLap: this.player.bestLap,
+        matchesWon: this.player.scW,
+        matchesLost: this.player.scL,
+        subs: this.player.scSubs,
+      }).then(j => {
+        const el = document.getElementById('results-times');
+        const fatigue = j.dailyMultiplier < 1
+          ? ` <span style="opacity:.7">(open-mat fatigue: ×${j.dailyMultiplier})</span>` : '';
+        el.innerHTML += `<br>🥋 <b>+${j.awarded} MAT POINTS</b> — ${j.profile.matPoints} lifetime${fatigue}`;
+        this.refreshAccountUi();
+        if (j.promotion) setTimeout(() => this.showPromotion(j.promotion), 1000);
+      }).catch(() => { /* progression is a bonus — never break the results screen */ });
+    }
 
     const subNote = this.player.scSubs ? ` (${this.player.scSubs} by submission!)` : '';
     const scLine = (this.player.scW || this.player.scL)

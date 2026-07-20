@@ -13,6 +13,10 @@ around tatami-mat tracks — and settle collisions with real grappling matches.
 - **Items**: grab gear bags on the track — 🥋 Flow Roll (bump rivals without
   triggering a match), 🍓 Açaí Bowl (clears daze + speed burst), 💦 Mystery Mat
   Puddle (drop it behind you, gross). SPACE to use; trailing racers get better luck
+- **Passkey accounts + belt progression** (via the private backend): anonymous
+  passkey sign-in, a customizable persistent grappler, and mat points earned from
+  every race and match — four stripes per belt, white through black, with daily
+  diminishing returns because you can't cram jiu jitsu
 - **Claude-powered extras** (optional): AI-generated characters, personality-matched
   trash talk during matches, and a ringside announcer recap after every race
 
