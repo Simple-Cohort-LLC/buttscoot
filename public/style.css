@@ -629,6 +629,65 @@ body.modal-open .char-card { visibility: hidden; }
   height: 24px;
 }
 
+/* ============ DUEL LOBBY ============ */
+.duel-link-row { display: flex; gap: 8px; margin-top: 12px; }
+.duel-link-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.duel-players {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+}
+.duel-slot {
+  flex: 1;
+  border: 2.5px solid var(--ink);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.duel-slot .ds-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.duel-slot .ds-belt {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: #5c5647;
+}
+.duel-slot .ds-ready { font-family: var(--font-mono); font-size: 10px; font-weight: 700; }
+.duel-slot.is-ready { border-color: #2f6e52; box-shadow: 0 0 0 2px rgba(62,142,106,.4); }
+.duel-vs {
+  align-self: center;
+  font-family: var(--font-display);
+  color: var(--danger-red-deep);
+  font-size: 16px;
+}
+.duel-tracks { margin-top: 12px; }
+.duel-tracks .track-btn { color: var(--ink); border-color: rgba(16,19,15,.3); font-size: 11px; padding: 8px 10px; }
+.duel-tracks .track-btn small { display: none; }
+.duel-tracks.locked .track-btn { pointer-events: none; opacity: .6; }
+.duel-tracks .track-btn.active { background: var(--gold); border-color: var(--gold); }
+
 /* ============ PROMOTION + HISTORY ============ */
 .promo-medal { font-size: 52px; line-height: 1; animation: medalSpin 1s cubic-bezier(.2,1.3,.4,1) both .15s; }
 .promo-belt {

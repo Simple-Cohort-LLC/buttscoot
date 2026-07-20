@@ -444,6 +444,38 @@ const AuthKit = {
   },
 };
 
+/* ---------------- Duels (live two-player, via DuelRoom DO) ---------------- */
+const DuelKit = {
+  ws: null,
+  async create() {
+    const r = await fetch('/api/duel/create', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'could not create room');
+    return j;
+  },
+  connect(code, { hostKey, profile }, onMsg, onClose) {
+    this.close();
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/api/duel/ws/${code}`);
+    this.ws = ws;
+    ws.onopen = () => this.send({ t: 'hello', hostKey: hostKey || undefined, profile });
+    ws.onmessage = e => {
+      let m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      onMsg(m);
+    };
+    ws.onclose = () => { if (this.ws === ws) { this.ws = null; onClose(); } };
+  },
+  send(o) {
+    try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); } catch (e) { /* closing */ }
+  },
+  close() {
+    const w = this.ws;
+    this.ws = null;
+    if (w) { try { w.close(); } catch (e) { /* already gone */ } }
+  },
+};
+
 /* ---------------- Track geometry + world texture ---------------- */
 class Track {
   constructor(def) {
@@ -1527,11 +1559,21 @@ const Game = {
     this.bindInput();
     this.bindUI();
     this.bindAccountUi();
+    this.bindDuelUi();
     this.checkMobile();
     Promise.all([ClaudeKit.init(), AuthKit.me()]).then(() => {
       this.refreshAccountUi();
       if (AuthKit.profile) this.applyProfile();
       else this.rollCharacter(true);
+      /* duel invite link: /d/<code> auto-joins once a character exists */
+      const dm = location.pathname.match(/^\/d\/([a-z]+-[a-z]+-\d{2})$/);
+      if (dm && !this.isMobile) {
+        const waitForChar = () => {
+          if (this.playerChar) this.joinDuel(dm[1]);
+          else setTimeout(waitForChar, 200);
+        };
+        waitForChar();
+      }
     });
     this.selectTrack(0);
     this.layout();
@@ -1606,7 +1648,21 @@ const Game = {
       if (AuthKit.profile) this.openProfileModal();
       else this.rollCharacter();
     });
-    document.getElementById('btn-again').addEventListener('click', () => { AudioKit.ensure(); this.startRace(); });
+    document.getElementById('btn-again').addEventListener('click', () => {
+      AudioKit.ensure();
+      if (this.duel) {
+        /* rematch: back to the lobby, ready up again */
+        document.getElementById('screen-results').classList.add('hidden');
+        document.getElementById('screen-card').classList.remove('hidden');
+        this.state = 'menu';
+        this.racers = [];
+        this.player = null;
+        this.showModal('modal-duel');
+        this.renderDuelLobby();
+        return;
+      }
+      this.startRace();
+    });
     document.getElementById('btn-menu').addEventListener('click', () => {
       AudioKit.ensure();
       this.state = 'menu';
@@ -1653,6 +1709,7 @@ const Game = {
 
   refreshAccountUi() {
     const chip = document.getElementById('account-chip');
+    document.getElementById('btn-duel').classList.toggle('hidden', !(AuthKit.available && AuthKit.profile));
     if (!AuthKit.available) { chip.classList.add('hidden'); return; }
     chip.classList.remove('hidden');
     chip.textContent = AuthKit.profile ? `🥋 ${AuthKit.profile.name}` : '🔑 SIGN IN';
@@ -1962,8 +2019,322 @@ const Game = {
     ctx.restore();
   },
 
+  /* ---------- duels ---------- */
+  bindDuelUi() {
+    document.getElementById('btn-duel').addEventListener('click', () => {
+      AudioKit.ensure();
+      this.hostDuel().catch(e => this.duelError(e.message));
+    });
+    document.getElementById('btn-copy-link').addEventListener('click', async () => {
+      const input = document.getElementById('duel-link');
+      const btn = document.getElementById('btn-copy-link');
+      try { await navigator.clipboard.writeText(input.value); }
+      catch (e) { input.select(); document.execCommand('copy'); }
+      btn.textContent = 'COPIED!';
+      setTimeout(() => { btn.textContent = 'COPY LINK'; }, 1500);
+    });
+    document.getElementById('btn-duel-ready').addEventListener('click', () => {
+      const d = this.duel;
+      if (!d || !d.room || !d.you) return;
+      AudioKit.ensure();
+      DuelKit.send({ t: 'ready', ready: !d.room.ready[d.you] });
+    });
+    document.getElementById('btn-duel-leave').addEventListener('click', () => {
+      this.hideModal('modal-duel');
+      this.endDuelSession();
+    });
+  },
+
+  duelError(msg) {
+    const el = document.getElementById('duel-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    this.showModal('modal-duel');
+  },
+
+  async hostDuel() {
+    if (!AuthKit.profile) return;
+    document.getElementById('duel-error').classList.add('hidden');
+    const { code, hostKey } = await DuelKit.create();
+    this.startDuelSession(code, hostKey);
+    document.getElementById('duel-link').value = `${location.origin}/d/${code}`;
+    document.getElementById('duel-link-row').classList.remove('hidden');
+  },
+
+  joinDuel(code) {
+    document.getElementById('duel-link-row').classList.add('hidden');
+    document.getElementById('duel-error').classList.add('hidden');
+    this.startDuelSession(code, null);
+  },
+
+  startDuelSession(code, hostKey) {
+    this.endDuelSession(true);
+    const char = this.playerChar;
+    const profile = {
+      name: char.name,
+      belt: char.belt,
+      stripes: AuthKit.profile ? AuthKit.profile.stripes : 0,
+      gi: char.gi, skin: char.skin, hair: char.hair, hairColor: char.hairColor,
+      stats: char.stats,
+      guest: !AuthKit.profile,
+    };
+    this.duel = { code, you: null, room: null, remote: null, sendTimer: null };
+    DuelKit.connect(code, { hostKey, profile },
+      m => this.onDuelMsg(m),
+      () => this.onDuelClosed());
+    document.getElementById('duel-status').textContent = 'Connecting…';
+    this.showModal('modal-duel');
+  },
+
+  endDuelSession(quiet = false) {
+    const d = this.duel;
+    if (d) clearInterval(d.sendTimer);
+    this.duel = null;
+    DuelKit.close();
+    document.getElementById('btn-again').textContent = 'SCOOT AGAIN';
+    if (!quiet && (this.state === 'race' || this.state === 'countdown')) this.goHome();
+  },
+
+  onDuelClosed() {
+    const d = this.duel;
+    if (!d) return;
+    clearInterval(d.sendTimer);
+    this.duel = null;
+    if (this.state === 'race' || this.state === 'countdown') {
+      this.goHome();
+    } else if (this.state !== 'finish') {
+      const status = document.getElementById('duel-status');
+      if (status) status.textContent = 'Disconnected.';
+    }
+  },
+
+  onDuelMsg(m) {
+    const d = this.duel;
+    if (!d) return;
+    if (m.t === 'welcome') {
+      d.you = m.you;
+    } else if (m.t === 'room') {
+      d.room = m;
+      this.renderDuelLobby();
+    } else if (m.t === 'start') {
+      this.beginDuelRace(m.track, m.countdownMs || 3500);
+    } else if (m.t === 'pos') {
+      if (d.remote) {
+        d.remote.netBuf.push({ at: performance.now(), ...m });
+        if (d.remote.netBuf.length > 12) d.remote.netBuf.shift();
+      }
+    } else if (m.t === 'finish') {
+      if (m.role !== d.you) {
+        if (d.remote) d.remote.finished = true;
+        if (this.state === 'race') this.toast('RIVAL FINISHED!');
+      }
+    } else if (m.t === 'result') {
+      this.showDuelResults(m);
+    } else if (m.t === 'left') {
+      const modal = document.getElementById('modal-duel');
+      if (!modal.classList.contains('hidden')) {
+        document.getElementById('duel-status').textContent = 'They left. The link still works.';
+      }
+    } else if (m.t === 'error') {
+      this.duelError(m.error);
+    } else if (m.t === 'expire') {
+      this.hideModal('modal-duel');
+      this.endDuelSession();
+    }
+  },
+
+  renderDuelLobby() {
+    const d = this.duel;
+    if (!d || !d.room) return;
+    const room = d.room;
+    for (const role of ['host', 'guest']) {
+      const el = document.getElementById(`duel-slot-${role}`);
+      const p = room.players[role];
+      el.querySelector('.ds-name').textContent =
+        p ? p.name + (role === d.you ? ' (YOU)' : '') : (role === 'guest' ? 'waiting…' : '—');
+      el.querySelector('.ds-belt').textContent =
+        p ? `${p.belt.toUpperCase()} BELT${p.guest ? ' · GUEST' : ''}` : '';
+      el.querySelector('.ds-ready').textContent = p ? (room.ready[role] ? 'READY ✔' : 'not ready') : '';
+      el.classList.toggle('is-ready', !!(p && room.ready[role]));
+    }
+    const wrap = document.getElementById('duel-tracks');
+    if (!wrap.childElementCount) {
+      TRACKS.forEach(t => {
+        const b = document.createElement('button');
+        b.className = 'track-btn';
+        b.textContent = t.name;
+        b.dataset.id = t.id;
+        b.addEventListener('click', () => {
+          if (this.duel && this.duel.you === 'host') DuelKit.send({ t: 'track', id: t.id });
+        });
+        wrap.appendChild(b);
+      });
+    }
+    wrap.classList.toggle('locked', d.you !== 'host');
+    wrap.querySelectorAll('.track-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.id === room.track));
+    const meReady = d.you && room.ready[d.you];
+    document.getElementById('btn-duel-ready').textContent = meReady ? 'UNREADY' : 'READY';
+    const other = room.players[d.you === 'host' ? 'guest' : 'host'];
+    document.getElementById('duel-status').textContent =
+      !other ? (d.you === 'host' ? 'Waiting for your rival — send them the link.' : 'Waiting for the host…')
+        : meReady ? 'Waiting for both READY…' : 'Rival is here. Hit READY.';
+  },
+
+  beginDuelRace(trackId, countdownMs) {
+    const d = this.duel;
+    if (!d || !d.room) return;
+    const idx = TRACKS.findIndex(t => t.id === trackId);
+    this.selectTrack(idx >= 0 ? idx : 0);
+
+    this.hideModal('modal-duel');
+    document.getElementById('screen-card').classList.add('hidden');
+    document.getElementById('screen-results').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('hud-item').classList.add('hidden');
+    document.getElementById('scramble').classList.add('hidden');
+
+    const otherRole = d.you === 'host' ? 'guest' : 'host';
+    const other = d.room.players[otherRole];
+    const remoteChar = {
+      name: other.name, belt: other.belt,
+      beltLabel: `${other.belt.toUpperCase()} BELT`,
+      tag: '', gi: other.gi, skin: other.skin, hair: other.hair, hairColor: other.hairColor,
+      stats: other.stats, fav: null,
+    };
+    const me = new Racer(this.playerChar, this.track, true, d.you === 'host' ? 0 : 1);
+    const remote = new Racer(remoteChar, this.track, false, d.you === 'host' ? 1 : 0);
+    remote.net = true;
+    remote.netBuf = [];
+    this.racers = [me, remote];
+    this.player = me;
+    d.remote = remote;
+
+    this.raceTime = 0;
+    this.confetti = [];
+    this._raceReported = true; // duels don't report as solo races (yet)
+    this.match = null;
+    this.matchCdUntil = Infinity; // no grappling matches in duels yet
+    this.puddles = [];
+    for (const bag of this.track.bags) bag.activeAt = 0;
+    this.updateBestLapHud();
+
+    this.cam.yaw = me.heading;
+    this.cam.x = me.x - Math.cos(this.cam.yaw) * this.followDist;
+    this.cam.y = me.y - Math.sin(this.cam.yaw) * this.followDist;
+
+    this.state = 'countdown';
+    const cd = document.getElementById('countdown');
+    const cdt = document.getElementById('countdown-text');
+    cd.classList.remove('hidden');
+    (this.cdTimers || []).forEach(clearTimeout);
+    const steps = [
+      ['3', countdownMs - 2700, false], ['2', countdownMs - 1800, false],
+      ['1', countdownMs - 900, false], ['COMBATE!', countdownMs, true],
+    ];
+    this.cdTimers = steps.map(([txt, at, go]) => setTimeout(() => {
+      cdt.textContent = txt;
+      cdt.classList.toggle('go', go);
+      cdt.style.animation = 'none';
+      void cdt.offsetWidth;
+      cdt.style.animation = '';
+      AudioKit.beep(go);
+      if (go) {
+        this.state = 'race';
+        setTimeout(() => cd.classList.add('hidden'), 800);
+      }
+    }, Math.max(0, at)));
+
+    clearInterval(d.sendTimer);
+    d.sendTimer = setInterval(() => {
+      const p = this.player;
+      if (!p || !this.duel) return;
+      DuelKit.send({
+        t: 'pos', x: p.x, y: p.y, heading: p.heading, speed: p.speed,
+        flow: p.flowTimer, slip: p.slipTimer, stun: p.stunTimer,
+        lap: p.lap, progress: p.progress,
+      });
+    }, 80);
+  },
+
+  netUpdateRemote(r, dt) {
+    const buf = r.netBuf;
+    const renderAt = performance.now() - 130;
+    while (buf.length >= 2 && buf[1].at <= renderAt) buf.shift();
+    if (buf.length >= 2) {
+      const [a, b] = buf;
+      const t = clamp((renderAt - a.at) / Math.max(1, b.at - a.at), 0, 1);
+      r.x = lerp(a.x, b.x, t);
+      r.y = lerp(a.y, b.y, t);
+      r.heading = angleLerp(a.heading, b.heading, t);
+      r.speed = lerp(a.speed, b.speed, t);
+    } else if (buf.length === 1) {
+      const a = buf[0];
+      r.x = a.x; r.y = a.y; r.heading = a.heading; r.speed = a.speed;
+    }
+    const s = buf[buf.length - 1];
+    if (s) {
+      r.flowTimer = s.flow || 0;
+      r.slipTimer = s.slip || 0;
+      r.stunTimer = s.stun || 0;
+      r.lap = s.lap || 1;
+      r.progress = s.progress || 0;
+    }
+    r.phase += dt * 5.5 * Math.min(1, r.speed / 60); // scoot rhythm from speed
+    r.bump = Math.max(0, r.bump - dt * 3);
+  },
+
+  showDuelResults(m) {
+    const d = this.duel;
+    if (!d) return;
+    clearInterval(d.sendTimer);
+    (this.cdTimers || []).forEach(clearTimeout);
+    this.state = 'finish';
+    this.match = null;
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('countdown').classList.add('hidden');
+    document.getElementById('scramble').classList.add('hidden');
+    document.getElementById('screen-results').classList.remove('hidden');
+
+    const win = m.winner === d.you;
+    document.getElementById('results-medal').textContent = win ? '🥇' : '🤕';
+    document.getElementById('results-title').textContent = win ? 'DUEL WON! OSS!' : 'DUEL LOST';
+    document.getElementById('results-sub').textContent = m.forfeit
+      ? (win ? 'RIVAL FLED THE MATS — VICTORY BY FORFEIT' : 'CONNECTION LOST — FORFEIT')
+      : 'SETTLED LIVE, WITNESSED BY THE MATS';
+
+    const rows = document.getElementById('results-rows');
+    rows.innerHTML = '';
+    const players = (d.room && d.room.players) || {};
+    const names = {
+      host: (players.host && players.host.name) || 'HOST',
+      guest: (players.guest && players.guest.name) || 'GUEST',
+    };
+    const order = [m.winner, m.winner === 'host' ? 'guest' : 'host'];
+    order.forEach((role, i) => {
+      const div = document.createElement('div');
+      div.className = 'results-row' + (role === d.you ? ' you' : '');
+      const time = m.times && m.times[role] != null ? fmtTime(m.times[role]) : (m.forfeit ? 'forfeit' : '—');
+      div.innerHTML = `<span class="rr-pos">${i + 1}</span><span class="rr-name"></span><span class="rr-time">${time}</span>`;
+      div.querySelector('.rr-name').textContent = names[role] + (role === d.you ? ' (YOU)' : '');
+      rows.appendChild(div);
+    });
+    document.getElementById('results-times').textContent =
+      'Pure scooting — grappling matches come to duels next.';
+    document.getElementById('results-recap').classList.add('hidden');
+    document.getElementById('btn-again').textContent = 'REMATCH';
+    if (win) AudioKit.fanfare(); else AudioKit.scLose();
+  },
+
   /* ---------- navigation / modes ---------- */
   goHome() {
+    if (this.duel) {
+      clearInterval(this.duel.sendTimer);
+      this.duel = null;
+      DuelKit.close();
+      document.getElementById('btn-again').textContent = 'SCOOT AGAIN';
+    }
+    this.hideModal('modal-duel');
     this.state = 'menu';
     this.racers = [];
     this.player = null;
@@ -2056,6 +2427,13 @@ const Game = {
   },
 
   onPlayerFinish() {
+    if (this.duel) {
+      DuelKit.send({ t: 'finish', time: this.player.finishTime });
+      this.toast(this.duel.remote && this.duel.remote.finished
+        ? 'FINISHED!' : 'FINISHED — WAITING FOR YOUR RIVAL…');
+      AudioKit.fanfare();
+      return; // results arrive from the room referee
+    }
     AudioKit.fanfare();
     for (let i = 0; i < 130; i++) {
       this.confetti.push({
@@ -2779,7 +3157,10 @@ const Game = {
 
     if (this.state === 'race') this.raceTime += dt;
 
-    for (const r of this.racers) r.update(dt, this.input, this);
+    for (const r of this.racers) {
+      if (r.net) this.netUpdateRemote(r, dt);
+      else r.update(dt, this.input, this);
+    }
 
     for (let i = 0; i < this.racers.length; i++) {
       for (let j = i + 1; j < this.racers.length; j++) {
@@ -2790,6 +3171,17 @@ const Game = {
           const d = Math.sqrt(d2);
           const nx = (b.x - a.x) / d, ny = (b.y - a.y) / d;
           const overlap = (R - d) / 2;
+          if (a.net || b.net) {
+            /* network rival is authoritative over itself: only push the local racer */
+            const local = a.net ? b : a;
+            const dir = a.net ? 1 : -1;
+            local.x += nx * overlap * 2 * dir;
+            local.y += ny * overlap * 2 * dir;
+            local.speed *= 0.9;
+            if (local.bump < 0.1) AudioKit.bump();
+            local.bump = 1;
+            continue;
+          }
           a.x -= nx * overlap; a.y -= ny * overlap;
           b.x += nx * overlap; b.y += ny * overlap;
           const aFlow = a.flowTimer > 0, bFlow = b.flowTimer > 0;
@@ -2870,7 +3262,7 @@ const Game = {
 
   updateItems(dt) {
     for (const r of this.racers) {
-      if (r.finished) continue;
+      if (r.finished || r.net) continue;
 
       /* gear bag pickups */
       if (!r.item) {

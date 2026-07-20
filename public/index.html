@@ -71,6 +71,7 @@
 
   <button id="btn-start" class="btn btn-big">SLAP • BUMP • <em>SCOOT!</em></button>
   <button id="btn-demo" class="btn btn-ghost">🤼 TRY A DEMO ROLL — grapple without racing</button>
+  <button id="btn-duel" class="btn btn-ghost hidden">⚔️ DUEL A FRIEND — race a rival live</button>
   <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; SPACE use item &nbsp;·&nbsp; (WASD works too)</div>
   <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — A · S · D · F · G on the mat, any submission ends it</div>
   <div class="ai-badge" id="ai-badge">✦ CLAUDE: CHECKING…</div>
@@ -174,6 +175,32 @@
       <button id="btn-passkey-register" class="btn btn-ghost">NEW GRAPPLER — CREATE PASSKEY</button>
     </div>
     <div id="auth-error" class="bs-error hidden"></div>
+  </div>
+</div>
+
+<div id="modal-duel" class="bs-modal hidden">
+  <div class="bs-panel">
+    <button class="bs-close" id="btn-duel-leave">✕</button>
+    <h3 class="bs-title">⚔️ DUEL ROOM</h3>
+    <div id="duel-link-row" class="duel-link-row hidden">
+      <input id="duel-link" readonly>
+      <button id="btn-copy-link" class="btn btn-ghost">COPY LINK</button>
+    </div>
+    <div class="duel-players">
+      <div class="duel-slot" id="duel-slot-host">
+        <div class="ds-name">—</div><div class="ds-belt"></div><div class="ds-ready"></div>
+      </div>
+      <div class="duel-vs">VS</div>
+      <div class="duel-slot" id="duel-slot-guest">
+        <div class="ds-name">waiting…</div><div class="ds-belt"></div><div class="ds-ready"></div>
+      </div>
+    </div>
+    <div id="duel-tracks" class="track-buttons duel-tracks"></div>
+    <div id="duel-status" class="sc-feed">Share the link. Settle it on the mats.</div>
+    <div class="bs-actions">
+      <button id="btn-duel-ready" class="btn btn-big btn-mid">READY</button>
+    </div>
+    <div id="duel-error" class="bs-error hidden"></div>
   </div>
 </div>
 
