@@ -30,6 +30,7 @@
 
 <!-- ===== CHARACTER REVEAL / TITLE SCREEN ===== -->
 <div id="screen-card" class="screen">
+  <button id="account-chip" class="account-chip hidden">🔑 SIGN IN</button>
   <div id="mobile-note" class="mobile-note hidden">
     🖥 <b>DESKTOP REQUIRED</b><br>
     Buttscoot GP needs a keyboard — arrows to scoot, home row to grapple.<br>
@@ -157,6 +158,69 @@
       <button id="btn-again" class="btn btn-big">SCOOT AGAIN</button>
       <button id="btn-menu" class="btn btn-ghost">NEW CHARACTER</button>
       <button id="btn-home-results" class="btn btn-ghost">🏠 HOME</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ACCOUNT MODALS ===== -->
+<div id="modal-auth" class="bs-modal hidden">
+  <div class="bs-panel">
+    <button class="bs-close" data-close="modal-auth">✕</button>
+    <h3 class="bs-title">YOUR GRAPPLER, SAVED</h3>
+    <p class="bs-sub">One passkey — no email, no password, no name required.
+    Everyone starts at white belt. Every stripe is earned on the mats.</p>
+    <div class="bs-actions">
+      <button id="btn-passkey-login" class="btn btn-big btn-mid">🔑 SIGN IN WITH PASSKEY</button>
+      <button id="btn-passkey-register" class="btn btn-ghost">NEW GRAPPLER — CREATE PASSKEY</button>
+    </div>
+    <div id="auth-error" class="bs-error hidden"></div>
+  </div>
+</div>
+
+<div id="modal-recovery" class="bs-modal hidden">
+  <div class="bs-panel">
+    <h3 class="bs-title">RECOVERY CODES</h3>
+    <p class="bs-sub">Your account <b>is</b> this passkey. Lose it, and one of these
+    codes is the only way back in. Save them now — they will never be shown again.</p>
+    <div id="recovery-codes" class="recovery-codes"></div>
+    <div class="bs-actions">
+      <button id="btn-recovery-done" class="btn btn-big btn-mid">I SAVED THEM — OSS</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-profile" class="bs-modal hidden">
+  <div class="bs-panel bs-panel-wide">
+    <button class="bs-close" data-close="modal-profile">✕</button>
+    <h3 class="bs-title">YOUR GRAPPLER</h3>
+    <div class="profile-grid">
+      <div class="profile-left">
+        <canvas id="profile-preview" width="180" height="180"></canvas>
+        <div class="profile-belt" id="profile-belt">WHITE BELT · 0 STRIPES</div>
+        <div class="profile-points" id="profile-points">0 MAT POINTS</div>
+      </div>
+      <div class="profile-form">
+        <label class="pf-label">NAME<input id="pf-name" maxlength="22" autocomplete="off"></label>
+        <label class="pf-label">BIO<textarea id="pf-bio" maxlength="140" rows="2"></textarea></label>
+        <label class="pf-label">TRASH-TALK TONE
+          <select id="pf-tone">
+            <option value="playful">Playful</option>
+            <option value="humble">Humble</option>
+            <option value="menacing">Menacing</option>
+            <option value="dad-jokes">Dad jokes</option>
+            <option value="philosophical">Philosophical</option>
+          </select>
+        </label>
+        <div class="pf-row"><span>GI</span><div class="swatches" id="sw-gi"></div></div>
+        <div class="pf-row"><span>SKIN</span><div class="swatches" id="sw-skin"></div></div>
+        <div class="pf-row"><span>HAIR</span><div class="swatches" id="sw-hair"></div></div>
+        <div class="pf-row"><span>COLOR</span><div class="swatches" id="sw-hairColor"></div></div>
+      </div>
+    </div>
+    <div id="profile-error" class="bs-error hidden"></div>
+    <div class="bs-actions">
+      <button id="btn-profile-save" class="btn btn-big btn-mid">SAVE</button>
+      <button id="btn-signout" class="btn btn-ghost">SIGN OUT</button>
     </div>
   </div>
 </div>

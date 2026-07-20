@@ -272,6 +272,117 @@ async function generateCharacter() {
   };
 }
 
+/* ---------------- Accounts (passkeys via the private backend) ----------------
+   Same-origin /api/* — served by the buttscoot-backend Worker in production.
+   When the backend isn't reachable (e.g. plain local dev), the whole account
+   UI hides and the game behaves exactly as before. */
+
+const GI_COLORS = ['#f2efe6', '#2e6fb5', '#2e2e2e', '#8a6a4f', '#e8a0b4', '#5c7a5c'];
+const SKIN_TONES = ['#f0c9a0', '#e8b48c', '#d29a6a', '#b57e52', '#8d5a3a', '#5f3c26'];
+const HAIR_COLORS = ['#2b1c12', '#5a4632', '#a8552e', '#222222', '#cfcfcf', '#d4a017'];
+
+const AuthKit = {
+  available: false,
+  profile: null,
+
+  b64uToBuf(s) {
+    const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(b, c => c.charCodeAt(0)).buffer;
+  },
+  bufToB64u(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
+
+  async me() {
+    try {
+      const r = await fetch('/api/me');
+      if (!r.ok) return null;
+      const j = await r.json();
+      this.available = true;
+      this.profile = j.signedIn ? j.profile : null;
+      return this.profile;
+    } catch (e) {
+      this.available = false;
+      return null;
+    }
+  },
+
+  credToJSON(cred) {
+    const r = cred.response;
+    const out = {
+      id: cred.id,
+      rawId: this.bufToB64u(cred.rawId),
+      type: cred.type,
+      clientExtensionResults: cred.getClientExtensionResults(),
+      response: { clientDataJSON: this.bufToB64u(r.clientDataJSON) },
+    };
+    if (cred.authenticatorAttachment) out.authenticatorAttachment = cred.authenticatorAttachment;
+    if (r.attestationObject) {
+      out.response.attestationObject = this.bufToB64u(r.attestationObject);
+      if (r.getTransports) out.response.transports = r.getTransports();
+    }
+    if (r.authenticatorData) out.response.authenticatorData = this.bufToB64u(r.authenticatorData);
+    if (r.signature) out.response.signature = this.bufToB64u(r.signature);
+    if (r.userHandle) out.response.userHandle = this.bufToB64u(r.userHandle);
+    return out;
+  },
+
+  async register() {
+    const or = await fetch('/api/auth/register/options', { method: 'POST' });
+    const options = await or.json();
+    if (!or.ok) throw new Error(options.error || 'options failed');
+    options.challenge = this.b64uToBuf(options.challenge);
+    options.user.id = this.b64uToBuf(options.user.id);
+    (options.excludeCredentials || []).forEach(c => { c.id = this.b64uToBuf(c.id); });
+    const cred = await navigator.credentials.create({ publicKey: options });
+    const vr = await fetch('/api/auth/register/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(this.credToJSON(cred)),
+    });
+    const j = await vr.json();
+    if (!vr.ok) throw new Error(j.error || 'registration failed');
+    this.profile = j.profile;
+    return j; // includes recoveryCodes
+  },
+
+  async login() {
+    const or = await fetch('/api/auth/login/options', { method: 'POST' });
+    const options = await or.json();
+    if (!or.ok) throw new Error(options.error || 'options failed');
+    options.challenge = this.b64uToBuf(options.challenge);
+    (options.allowCredentials || []).forEach(c => { c.id = this.b64uToBuf(c.id); });
+    const cred = await navigator.credentials.get({ publicKey: options });
+    const vr = await fetch('/api/auth/login/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(this.credToJSON(cred)),
+    });
+    const j = await vr.json();
+    if (!vr.ok) throw new Error(j.error || 'sign-in failed');
+    this.profile = j.profile;
+    return j;
+  },
+
+  async logout() {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* best effort */ }
+    this.profile = null;
+  },
+
+  async saveProfile(fields) {
+    const r = await fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'save failed');
+    this.profile = j.profile;
+    return j.profile;
+  },
+};
+
 /* ---------------- Track geometry + world texture ---------------- */
 class Track {
   constructor(def) {
@@ -1354,8 +1465,13 @@ const Game = {
     window.addEventListener('resize', () => this.layout());
     this.bindInput();
     this.bindUI();
+    this.bindAccountUi();
     this.checkMobile();
-    ClaudeKit.init().then(() => this.rollCharacter(true));
+    Promise.all([ClaudeKit.init(), AuthKit.me()]).then(() => {
+      this.refreshAccountUi();
+      if (AuthKit.profile) this.applyProfile();
+      else this.rollCharacter(true);
+    });
     this.selectTrack(0);
     this.layout();
     // canvas text uses Bungee/Archivo — rebuild world art once fonts arrive
@@ -1424,7 +1540,11 @@ const Game = {
 
     document.getElementById('btn-start').addEventListener('click', () => { AudioKit.ensure(); this.startRace(); });
     document.getElementById('btn-reroll').addEventListener('click', () => { AudioKit.ensure(); this.rollCharacter(); });
-    document.getElementById('char-card').addEventListener('click', () => { AudioKit.ensure(); this.rollCharacter(); });
+    document.getElementById('char-card').addEventListener('click', () => {
+      AudioKit.ensure();
+      if (AuthKit.profile) this.openProfileModal();
+      else this.rollCharacter();
+    });
     document.getElementById('btn-again').addEventListener('click', () => { AudioKit.ensure(); this.startRace(); });
     document.getElementById('btn-menu').addEventListener('click', () => {
       AudioKit.ensure();
@@ -1443,6 +1563,189 @@ const Game = {
       AudioKit.muted = !AudioKit.muted;
       muteBtn.textContent = AudioKit.muted ? '🔇' : '🔊';
     });
+  },
+
+  /* ---------- account UI ---------- */
+  profileToChar(p) {
+    const rank = { white: 3, blue: 3, purple: 4, brown: 4, black: 5 }[p.belt] || 3;
+    return {
+      name: p.name,
+      belt: p.belt,
+      beltLabel: `${p.belt.toUpperCase()} BELT · ${p.stripes} STRIPE${p.stripes === 1 ? '' : 'S'}`,
+      tag: p.bio || 'Fresh off the intro class. Scooting with heart.',
+      gi: p.gi, skin: p.skin, hair: p.hair, hairColor: p.hairColor,
+      stats: { scoot: rank, speed: rank, control: rank },
+      fav: null,
+      isProfile: true,
+    };
+  },
+
+  applyProfile() {
+    this._rollSeq = (this._rollSeq || 0) + 1; // cancel any in-flight roll
+    document.getElementById('card-scouting').classList.add('hidden');
+    this.playerChar = this.profileToChar(AuthKit.profile);
+    this.fillCard();
+    document.getElementById('char-card').classList.add('flipped');
+    document.getElementById('btn-reroll').classList.add('hidden');
+    this.refreshAccountUi();
+  },
+
+  refreshAccountUi() {
+    const chip = document.getElementById('account-chip');
+    if (!AuthKit.available) { chip.classList.add('hidden'); return; }
+    chip.classList.remove('hidden');
+    chip.textContent = AuthKit.profile ? `🥋 ${AuthKit.profile.name}` : '🔑 SIGN IN';
+  },
+
+  showModal(id) {
+    document.getElementById(id).classList.remove('hidden');
+    document.body.classList.add('modal-open');
+  },
+  hideModal(id) {
+    document.getElementById(id).classList.add('hidden');
+    if (!document.querySelector('.bs-modal:not(.hidden)')) {
+      document.body.classList.remove('modal-open');
+    }
+  },
+
+  bindAccountUi() {
+    document.getElementById('account-chip').addEventListener('click', () => {
+      AudioKit.ensure();
+      if (AuthKit.profile) this.openProfileModal();
+      else { document.getElementById('auth-error').classList.add('hidden'); this.showModal('modal-auth'); }
+    });
+    document.querySelectorAll('.bs-close').forEach(b =>
+      b.addEventListener('click', () => this.hideModal(b.dataset.close)));
+
+    const authErr = msg => {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    };
+    document.getElementById('btn-passkey-login').addEventListener('click', async () => {
+      try {
+        await AuthKit.login();
+        this.hideModal('modal-auth');
+        this.applyProfile();
+      } catch (e) { authErr(e.message); }
+    });
+    document.getElementById('btn-passkey-register').addEventListener('click', async () => {
+      try {
+        const j = await AuthKit.register();
+        this.hideModal('modal-auth');
+        const codesEl = document.getElementById('recovery-codes');
+        codesEl.innerHTML = '';
+        for (const c of j.recoveryCodes || []) {
+          const code = document.createElement('code');
+          code.textContent = c;
+          codesEl.appendChild(code);
+        }
+        this.showModal('modal-recovery');
+        this.applyProfile();
+      } catch (e) { authErr(e.message); }
+    });
+    document.getElementById('btn-recovery-done').addEventListener('click', () => {
+      this.hideModal('modal-recovery');
+      this.openProfileModal(); // straight into naming your grappler
+    });
+
+    document.getElementById('btn-signout').addEventListener('click', async () => {
+      await AuthKit.logout();
+      this.hideModal('modal-profile');
+      document.getElementById('btn-reroll').classList.remove('hidden');
+      this.refreshAccountUi();
+      this.rollCharacter();
+    });
+    document.getElementById('btn-profile-save').addEventListener('click', async () => {
+      const err = document.getElementById('profile-error');
+      err.classList.add('hidden');
+      try {
+        await AuthKit.saveProfile({
+          name: document.getElementById('pf-name').value,
+          bio: document.getElementById('pf-bio').value,
+          tone: document.getElementById('pf-tone').value,
+          gi: this._pf.gi, skin: this._pf.skin,
+          hair: this._pf.hair, hairColor: this._pf.hairColor,
+        });
+        this.hideModal('modal-profile');
+        this.applyProfile();
+      } catch (e) {
+        err.textContent = e.message;
+        err.classList.remove('hidden');
+      }
+    });
+    /* live preview on typed fields */
+    ['pf-name', 'pf-bio'].forEach(id =>
+      document.getElementById(id).addEventListener('input', () => this.drawProfilePreview()));
+  },
+
+  openProfileModal() {
+    const p = AuthKit.profile;
+    if (!p) return;
+    this._pf = { gi: p.gi, skin: p.skin, hair: p.hair, hairColor: p.hairColor };
+    document.getElementById('pf-name').value = p.name;
+    document.getElementById('pf-bio').value = p.bio;
+    document.getElementById('pf-tone').value = p.tone;
+    document.getElementById('profile-belt').textContent =
+      `${p.belt.toUpperCase()} BELT · ${p.stripes} STRIPE${p.stripes === 1 ? '' : 'S'}`;
+    document.getElementById('profile-points').textContent = `${p.matPoints} MAT POINTS`;
+    document.getElementById('profile-error').classList.add('hidden');
+    this.buildSwatches();
+    this.drawProfilePreview();
+    this.showModal('modal-profile');
+  },
+
+  buildSwatches() {
+    const make = (elId, values, key, textLabels) => {
+      const el = document.getElementById(elId);
+      el.innerHTML = '';
+      for (const v of values) {
+        const b = document.createElement('button');
+        b.className = 'swatch' + (textLabels ? ' swatch-txt' : '') + (this._pf[key] === v ? ' sel' : '');
+        if (textLabels) b.textContent = v;
+        else b.style.background = v;
+        b.addEventListener('click', () => {
+          this._pf[key] = v;
+          this.buildSwatches();
+          this.drawProfilePreview();
+        });
+        el.appendChild(b);
+      }
+    };
+    make('sw-gi', GI_COLORS, 'gi');
+    make('sw-skin', SKIN_TONES, 'skin');
+    make('sw-hair', HAIR_STYLES, 'hair', true);
+    make('sw-hairColor', HAIR_COLORS, 'hairColor');
+  },
+
+  drawProfilePreview() {
+    const p = AuthKit.profile;
+    if (!p || !this._pf) return;
+    const c = document.getElementById('profile-preview');
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = this.trackDef.mat;
+    ctx.beginPath(); ctx.roundRect(6, 6, 168, 168, 14); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 2;
+    for (let g = 48; g < 180; g += 42) {
+      ctx.beginPath(); ctx.moveTo(g, 6); ctx.lineTo(g, 174); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, g); ctx.lineTo(174, g); ctx.stroke();
+    }
+    const fake = Object.create(Racer.prototype);
+    fake.char = { ...this._pf, belt: p.belt };
+    fake.x = 90; fake.y = 96;
+    fake.heading = -Math.PI / 2;
+    fake.phase = 1.2;
+    fake.speed = 100;
+    fake.boostTimer = 0;
+    fake.bump = 0;
+    ctx.save();
+    ctx.translate(90, 96);
+    ctx.scale(2.5, 2.5);
+    ctx.translate(-90, -96);
+    fake.drawTopDown(ctx);
+    ctx.restore();
   },
 
   selectTrack(i) {
@@ -1475,6 +1778,7 @@ const Game = {
   },
 
   rollCharacter(first = false) {
+    if (AuthKit.profile) { this.applyProfile(); return; } // your grappler is yours
     const card = document.getElementById('char-card');
     const scouting = document.getElementById('card-scouting');
     const seq = (this._rollSeq = (this._rollSeq || 0) + 1);
@@ -1789,9 +2093,12 @@ const Game = {
       'All lines are spoken BY the opponent character, in their voice. Each line under ' +
       '12 words. Playful gym-culture humor: guard pulling, leg locks, cardio, gi snobbery. ' +
       'Never mean-spirited.';
+    const toneNote = AuthKit.profile
+      ? ` The player has asked for "${AuthKit.profile.tone}" style trash talk — write every line in that flavor.`
+      : '';
     const prompt =
       `Opponent: ${ch.name} (${ch.beltLabel}). Personality: "${ch.tag}". ` +
-      `Favorite move: ${ch.fav || 'unpredictable'}. They are grappling the player, ${this.playerChar.name}.\n` +
+      `Favorite move: ${ch.fav || 'unpredictable'}. They are grappling the player, ${this.playerChar.name}.${toneNote}\n` +
       'Respond with ONLY this JSON:\n' +
       '{"opener":"line as the match starts","dominant":"line while they are winning",' +
       '"losing":"line while they are losing","subAttempt":"line while locking a submission",' +
@@ -2260,6 +2567,7 @@ const Game = {
       `Race just ended on ${this.trackDef.name}. Final standings:\n${lines.join('\n')}\n` +
       `The player raced as ${p.char.name}, best lap ${fmtTime(p.bestLap)}. ` +
       `Grappling matches during the race: ${p.scW} won (${p.scSubs} by submission), ${p.scL} lost.\n` +
+      (AuthKit.profile ? `Style the recap with a "${AuthKit.profile.tone}" flavor. ` : '') +
       'Give a 2-sentence recap, max 45 words, plain text only, no emoji.';
     const txt = await ClaudeKit.ask(system, prompt, 200, 9000);
     return txt ? txt.trim().replace(/\s+/g, ' ').slice(0, 400) : null;
