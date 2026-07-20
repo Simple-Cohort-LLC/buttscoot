@@ -328,14 +328,55 @@ const AuthKit = {
     return out;
   },
 
+  /* Options are pre-fetched when the auth modal opens so the WebAuthn call
+     fires immediately on click — password-manager popups (1Password etc.)
+     steal focus, and a long fetch gap between click and ceremony is what
+     produces "The document is not focused". */
+  _optCache: {},
+  async fetchOptions(kind) {
+    const cached = this._optCache[kind];
+    if (cached && Date.now() - cached.at < 4 * 60 * 1000) return JSON.parse(cached.raw);
+    const r = await fetch(`/api/auth/${kind}/options`, { method: 'POST' });
+    const raw = await r.text();
+    if (!r.ok) {
+      let j = {};
+      try { j = JSON.parse(raw); } catch (e) { /* not json */ }
+      throw new Error(j.error || 'options failed');
+    }
+    this._optCache[kind] = { raw, at: Date.now() };
+    return JSON.parse(raw);
+  },
+  prefetch() {
+    this.fetchOptions('register').catch(() => {});
+    this.fetchOptions('login').catch(() => {});
+  },
+
+  /* run the browser ceremony; if focus was stolen (password-manager popup),
+     wait for the page to regain focus and retry once */
+  async ceremony(fn) {
+    window.focus();
+    try {
+      return await fn();
+    } catch (e) {
+      if (String(e?.message || '').toLowerCase().includes('not focused')) {
+        await new Promise(res => {
+          if (document.hasFocus()) return res();
+          const t = setTimeout(res, 15000);
+          window.addEventListener('focus', () => { clearTimeout(t); setTimeout(res, 200); }, { once: true });
+        });
+        return await fn();
+      }
+      throw e;
+    }
+  },
+
   async register() {
-    const or = await fetch('/api/auth/register/options', { method: 'POST' });
-    const options = await or.json();
-    if (!or.ok) throw new Error(options.error || 'options failed');
+    const options = await this.fetchOptions('register');
     options.challenge = this.b64uToBuf(options.challenge);
     options.user.id = this.b64uToBuf(options.user.id);
     (options.excludeCredentials || []).forEach(c => { c.id = this.b64uToBuf(c.id); });
-    const cred = await navigator.credentials.create({ publicKey: options });
+    const cred = await this.ceremony(() => navigator.credentials.create({ publicKey: options }));
+    delete this._optCache.register;
     const vr = await fetch('/api/auth/register/verify', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -348,12 +389,11 @@ const AuthKit = {
   },
 
   async login() {
-    const or = await fetch('/api/auth/login/options', { method: 'POST' });
-    const options = await or.json();
-    if (!or.ok) throw new Error(options.error || 'options failed');
+    const options = await this.fetchOptions('login');
     options.challenge = this.b64uToBuf(options.challenge);
     (options.allowCredentials || []).forEach(c => { c.id = this.b64uToBuf(c.id); });
-    const cred = await navigator.credentials.get({ publicKey: options });
+    const cred = await this.ceremony(() => navigator.credentials.get({ publicKey: options }));
+    delete this._optCache.login;
     const vr = await fetch('/api/auth/login/verify', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1612,12 +1652,22 @@ const Game = {
     document.getElementById('account-chip').addEventListener('click', () => {
       AudioKit.ensure();
       if (AuthKit.profile) this.openProfileModal();
-      else { document.getElementById('auth-error').classList.add('hidden'); this.showModal('modal-auth'); }
+      else {
+        document.getElementById('auth-error').classList.add('hidden');
+        AuthKit.prefetch(); // ceremony can start instantly on button click
+        this.showModal('modal-auth');
+      }
     });
     document.querySelectorAll('.bs-close').forEach(b =>
       b.addEventListener('click', () => this.hideModal(b.dataset.close)));
 
-    const authErr = msg => {
+    const authErr = e => {
+      const raw = String(e?.message || e || 'something went wrong');
+      const msg = raw.toLowerCase().includes('not focused')
+        ? 'The page lost focus (a password-manager popup?). Click the page once, then try again.'
+        : e?.name === 'NotAllowedError' || raw.toLowerCase().includes('not allowed')
+          ? 'The passkey prompt was dismissed or timed out — try again.'
+          : raw;
       const el = document.getElementById('auth-error');
       el.textContent = msg;
       el.classList.remove('hidden');
@@ -1627,7 +1677,7 @@ const Game = {
         await AuthKit.login();
         this.hideModal('modal-auth');
         this.applyProfile();
-      } catch (e) { authErr(e.message); }
+      } catch (e) { authErr(e); }
     });
     document.getElementById('btn-passkey-register').addEventListener('click', async () => {
       try {
@@ -1642,7 +1692,7 @@ const Game = {
         }
         this.showModal('modal-recovery');
         this.applyProfile();
-      } catch (e) { authErr(e.message); }
+      } catch (e) { authErr(e); }
     });
     document.getElementById('btn-recovery-done').addEventListener('click', () => {
       this.hideModal('modal-recovery');
