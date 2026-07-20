@@ -27,9 +27,11 @@ export default {
     if (url.pathname.startsWith('/api/')) {
       return json(404, { error: 'not found' });
     }
-    /* duel invite links are client-routed: /d/<code> serves the game */
+    /* duel invite links are client-routed: /d/<code> serves the game
+       (fetch "/" — asking assets for /index.html triggers a 307 that would
+       strip the room code from the browser URL) */
     if (url.pathname.startsWith('/d/')) {
-      return env.ASSETS.fetch(new Request(`${url.origin}/index.html`, request));
+      return env.ASSETS.fetch(new Request(`${url.origin}/`, request));
     }
     return env.ASSETS.fetch(request);
   },
