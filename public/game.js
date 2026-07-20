@@ -2651,7 +2651,14 @@ const Game = {
     const scMap = {
       KeyA: 'advance', KeyS: 'sweep', KeyD: 'defend', KeyF: 'submit', KeyG: 'gloat',
     };
+    /* never steal keys from form fields (profile editor etc.) */
+    const isTyping = e => {
+      const t = e.target;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+        t.tagName === 'SELECT' || t.isContentEditable);
+    };
     window.addEventListener('keydown', e => {
+      if (isTyping(e)) return;
       if (this.match && !this.match.over) {
         const m = scMap[e.code];
         if (m) { e.preventDefault(); AudioKit.ensure(); this.playerAct(m); }
@@ -2669,6 +2676,7 @@ const Game = {
       if (k) { this.input[k] = true; e.preventDefault(); AudioKit.ensure(); }
     });
     window.addEventListener('keyup', e => {
+      if (isTyping(e)) return;
       const k = map[e.code];
       if (k) { this.input[k] = false; e.preventDefault(); }
     });
