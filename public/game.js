@@ -114,6 +114,41 @@ const TRACKS = [
     boostS: [0.30, 0.68, 0.93],
     bagS: [0.15, 0.45, 0.6, 0.85],
   },
+  {
+    id: 'mayhem', name: 'OPEN MAT MAYHEM', sub: 'ROLLERS EVERYWHERE · ONE BIG RAMP',
+    width: 128,
+    mat: '#c9803a', border: '#2f6e52',
+    floor: '#241c12',
+    points: [
+      [260, 220], [700, 150], [1150, 200], [1430, 360],
+      [1480, 600], [1280, 760], [1040, 690], [900, 850],
+      [620, 905], [320, 800], [150, 520],
+    ],
+    boostS: [0.30, 0.72],
+    bagS: [0.08, 0.5, 0.68, 0.93],
+    rampS: [0.16],
+    rollers: [
+      { s: 0.38, span: 0.55, speed: 0.9 },
+      { s: 0.62, span: 0.5, speed: 1.3 },
+      { s: 0.86, span: 0.6, speed: 0.7 },
+    ],
+  },
+  {
+    id: 'summit', name: 'SUBMISSION SUMMIT', sub: 'SWITCHBACKS · TWO RAMPS · THE GAP',
+    width: 108,
+    mat: '#b03a48', border: '#e8c33c',
+    floor: '#1a1214',
+    points: [
+      [220, 240], [640, 170], [1060, 230], [1400, 300],
+      [1460, 520], [1230, 560], [950, 480], [700, 540],
+      [950, 640], [1230, 660], [1420, 780], [1240, 940],
+      [880, 890], [520, 950], [230, 830], [140, 520],
+    ],
+    boostS: [0.28, 0.85],
+    bagS: [0.15, 0.4, 0.66, 0.9],
+    rampS: [0.09, 0.42],
+    rollers: [{ s: 0.75, span: 0.45, speed: 1.0 }],
+  },
 ];
 
 /* ---------------- Items ---------------- */
@@ -180,6 +215,8 @@ const AudioKit = {
   slurp() { this.tone(260, 0.28, 'triangle', 0.1, 720); },
   splat() { this.tone(190, 0.16, 'sawtooth', 0.1, 90); },
   slip() { this.tone(950, 0.35, 'triangle', 0.09, 180); },
+  jump() { this.tone(320, 0.22, 'square', 0.1, 720); },
+  land() { this.tone(160, 0.12, 'sawtooth', 0.1, 90); },
   scWin() { this.tone(523, 0.12, 'square', 0.1); this.tone(784, 0.2, 'square', 0.1, null, 0.1); },
   scLose() { this.tone(300, 0.3, 'sawtooth', 0.1, 130); },
   fanfare() {
@@ -540,6 +577,13 @@ class Track {
         this.bags.push({ x: p.x + nx * off, y: p.y + ny * off, s, activeAt: 0 });
       }
     }
+    /* jump ramps */
+    this.ramps = (this.def.rampS || []).map(s => {
+      const p = this.sampleAt(s);
+      return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, s };
+    });
+    /* rolling sparring pairs oscillate across the track at these anchors */
+    this.rollerDefs = (this.def.rollers || []).map((r, i) => ({ ...r, phase0: i * 2.1 }));
   }
 
   sampleAt(s) {
@@ -712,6 +756,44 @@ class Track {
       ctx.restore();
     }
 
+    /* jump ramps: hazard-striped launch plates */
+    for (const rp of this.ramps) {
+      const ang = Math.atan2(rp.dirY, rp.dirX);
+      ctx.save();
+      ctx.translate(rp.x, rp.y);
+      ctx.rotate(ang);
+      const w = this.width * 0.56, h = 34;
+      ctx.fillStyle = '#f4c542';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(-h / 2, -w / 2, h, w, 6);
+      ctx.fill(); ctx.stroke();
+      /* hazard stripes */
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(-h / 2, -w / 2, h, w, 6);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(16,19,15,0.8)';
+      ctx.lineWidth = 7;
+      for (let yy = -w / 2 - h; yy < w / 2 + h; yy += 22) {
+        ctx.beginPath();
+        ctx.moveTo(-h / 2, yy);
+        ctx.lineTo(h / 2, yy + h);
+        ctx.stroke();
+      }
+      ctx.restore();
+      /* forward arrow */
+      ctx.fillStyle = '#f3efe4';
+      ctx.strokeStyle = 'rgba(16,19,15,0.85)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-4, -12); ctx.lineTo(12, 0); ctx.lineTo(-4, 12); ctx.lineTo(1, 0);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+
     /* infield logo */
     let cx = 0, cy = 0;
     for (const s of this.samples) { cx += s.x; cy += s.y; }
@@ -835,6 +917,8 @@ class Racer {
     this.slipTimer = 0;
     this.aiItemAt = 0;
     this.rank = 4;
+    this.z = 0;   // height above the mats (jumps)
+    this.vz = 0;
 
     if (!isPlayer) {
       this.aiSkill = 0.86 + Math.random() * 0.12;
@@ -865,6 +949,8 @@ class Racer {
       this.heading += 9 * dt; // spin-out
     }
     this.flowTimer = Math.max(0, this.flowTimer - dt);
+    const airborne = this.z > 0;
+    if (airborne) { thrust = 0; steer *= 0.15; brake = false; }
     this.lean = lerp(this.lean, steer, 1 - Math.exp(-8 * dt));
 
     /* scoot pulse: thrust arrives in rhythmic pushes */
@@ -883,11 +969,13 @@ class Racer {
     }
     if (brake) this.speed -= 340 * dt;
 
-    const cap = this.offTrack ? 95 : this.topSpeed * (this.boostTimer > 0 ? 1.42 : 1);
-    const drag = this.offTrack ? 2.4 : 0.9;
-    this.speed -= this.speed * drag * dt;
-    this.speed = Math.max(0, this.speed);
-    if (this.speed > cap) this.speed = Math.max(cap, this.speed - 260 * dt); // ease down to the cap
+    if (!airborne) {
+      const cap = this.offTrack ? 95 : this.topSpeed * (this.boostTimer > 0 ? 1.42 : 1);
+      const drag = this.offTrack ? 2.4 : 0.9;
+      this.speed -= this.speed * drag * dt;
+      this.speed = Math.max(0, this.speed);
+      if (this.speed > cap) this.speed = Math.max(cap, this.speed - 260 * dt); // ease down to the cap
+    }
 
     const steerEff = this.turnRate * (0.55 + 0.45 * Math.min(1, this.speed / 160));
     this.heading += steer * steerEff * dt;
@@ -902,16 +990,46 @@ class Racer {
     if (ds < -0.5) ds += 1;
     this.progress += ds;
 
-    const dCenter = tr.distToCenter(this.x, this.y, this.s);
-    this.offTrack = dCenter > tr.width / 2 + 6;
-    const hardEdge = tr.width / 2 + 42;
-    if (dCenter > hardEdge) {
-      const c = tr.sampleAt(this.s);
-      const px = this.x - c.x, py = this.y - c.y;
-      const d = Math.hypot(px, py) || 1;
-      this.x = c.x + (px / d) * hardEdge;
-      this.y = c.y + (py / d) * hardEdge;
-      this.speed *= 0.7;
+    if (!airborne) {
+      const dCenter = tr.distToCenter(this.x, this.y, this.s);
+      this.offTrack = dCenter > tr.width / 2 + 6;
+      const hardEdge = tr.width / 2 + 42;
+      if (dCenter > hardEdge) {
+        const c = tr.sampleAt(this.s);
+        const px = this.x - c.x, py = this.y - c.y;
+        const d = Math.hypot(px, py) || 1;
+        this.x = c.x + (px / d) * hardEdge;
+        this.y = c.y + (py / d) * hardEdge;
+        this.speed *= 0.7;
+      }
+    } else {
+      this.offTrack = false; // you cannot be off-track in the sky
+    }
+
+    /* flight + landing */
+    if (this.z > 0 || this.vz !== 0) {
+      this.z += this.vz * dt;
+      this.vz -= 440 * dt;
+      if (this.z <= 0) {
+        this.z = 0;
+        this.vz = 0;
+        this.s = tr.nearestS(this.x, this.y, null); // full resync — jumps can shortcut
+        this.bump = Math.max(this.bump, 0.7);
+        if (this.isPlayer) AudioKit.land();
+      }
+    }
+
+    /* ramp launch */
+    if (this.z === 0) {
+      for (const rp of tr.ramps) {
+        if (dist2(this.x, this.y, rp.x, rp.y) < 36 * 36 && this.speed > 110) {
+          this.vz = 150;
+          this.z = 0.5;
+          this.speed = Math.max(this.speed, Math.min(this.topSpeed * 1.15, this.speed * 1.1));
+          if (this.isPlayer) { AudioKit.jump(); game.toast('BIG AIR!'); }
+          break;
+        }
+      }
     }
 
     if (this.progress >= this.lap) {
@@ -935,6 +1053,7 @@ class Racer {
     }
 
     for (const bp of tr.boosts) {
+      if (this.z > 0) break; // ground pads don't fire mid-air
       const cd = this.boostCooldowns.get(bp) || 0;
       if (cd > game.raceTime) continue;
       if (dist2(this.x, this.y, bp.x, bp.y) < 38 * 38) {
@@ -1004,12 +1123,14 @@ class Racer {
       }
     }
 
-    /* shadow */
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    /* shadow: stays on the mats, shrinks with height */
+    const shScale = clamp(1 - this.z / 160, 0.35, 1);
+    ctx.fillStyle = `rgba(0,0,0,${0.3 * shScale})`;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 17, 5, 0, 0, TAU);
+    ctx.ellipse(0, 0, 17 * shScale, 5 * shScale, 0, 0, TAU);
     ctx.fill();
 
+    ctx.translate(0, -this.z * 0.85); // airborne body lifts off the shadow
     ctx.rotate(this.lean * 0.13);
     ctx.translate(0, -bob);
     const squash = 1 + this.bump * 0.18;
@@ -1551,6 +1672,7 @@ const Game = {
   miniPts: null, miniBox: null,
   match: null, matchCdUntil: 0,
   puddles: [],
+  rollers: [],
 
   init() {
     this.canvas = document.getElementById('game');
@@ -2252,7 +2374,7 @@ const Game = {
       DuelKit.send({
         t: 'pos', x: p.x, y: p.y, heading: p.heading, speed: p.speed,
         flow: p.flowTimer, slip: p.slipTimer, stun: p.stunTimer,
-        lap: p.lap, progress: p.progress,
+        z: p.z, lap: p.lap, progress: p.progress,
       });
     }, 80);
   },
@@ -2277,6 +2399,7 @@ const Game = {
       r.flowTimer = s.flow || 0;
       r.slipTimer = s.slip || 0;
       r.stunTimer = s.stun || 0;
+      r.z = s.z || 0;
       r.lap = s.lap || 1;
       r.progress = s.progress || 0;
     }
@@ -3168,6 +3291,7 @@ const Game = {
         const R = 26;
         const d2 = dist2(a.x, a.y, b.x, b.y);
         if (d2 < R * R && d2 > 0.01) {
+          if (a.z > 4 || b.z > 4) continue; // one of them is flying overhead
           const d = Math.sqrt(d2);
           const nx = (b.x - a.x) / d, ny = (b.y - a.y) / d;
           const overlap = (R - d) / 2;
@@ -3207,6 +3331,7 @@ const Game = {
             !pl.finished && !other.finished &&
             pl.stunTimer <= 0 && other.stunTimer <= 0 &&
             pl.flowTimer <= 0 && other.flowTimer <= 0 &&
+            pl.z <= 0 && other.z <= 0 &&
             Math.max(a.speed, b.speed) > 70
           ) {
             this.startMatch(other);
@@ -3241,6 +3366,7 @@ const Game = {
       });
       rank.forEach((r, i) => { r.rank = i + 1; });
       this.updateItems(dt);
+      this.updateRollers();
       document.getElementById('hud-lap').textContent = Math.min(this.totalLaps, this.player.lap);
       document.getElementById('hud-time').textContent = fmtTime(this.raceTime);
       document.getElementById('hud-pos').textContent = this.player.rank;
@@ -3287,8 +3413,9 @@ const Game = {
         }
       }
 
-      /* mystery puddle slips */
+      /* mystery puddle slips (flying over them is legal) */
       for (let i = this.puddles.length - 1; i >= 0; i--) {
+        if (r.z > 0) break;
         const p = this.puddles[i];
         if (this.raceTime < p.armAt) continue;
         if (p.owner === r && this.raceTime < p.armAt + 1.2) continue;
@@ -3299,6 +3426,31 @@ const Game = {
           r.bump = 1;
           AudioKit.slip();
           if (r.isPlayer) this.toast('SLIPPED ON A MYSTERY PUDDLE! EW!');
+        }
+      }
+    }
+  },
+
+  /* rolling sparring pairs drift across the mats; scoot into one, spin out */
+  updateRollers() {
+    const defs = this.track.rollerDefs || [];
+    this.rollers = defs.map(rd => {
+      const p = this.track.sampleAt(rd.s);
+      const off = Math.sin(this.raceTime * rd.speed + rd.phase0) * rd.span * this.track.width * 0.5;
+      return { x: p.x - p.dirY * off, y: p.y + p.dirX * off };
+    });
+    for (const r of this.racers) {
+      if (r.net || r.finished || r.z > 0 || r.slipTimer > 0) continue;
+      for (const rl of this.rollers) {
+        if (dist2(r.x, r.y, rl.x, rl.y) < 30 * 30) {
+          r.slipTimer = 1.2;
+          r.speed *= 0.3;
+          r.bump = 1;
+          const d = Math.hypot(r.x - rl.x, r.y - rl.y) || 1;
+          r.x += ((r.x - rl.x) / d) * 14;
+          r.y += ((r.y - rl.y) / d) * 14;
+          AudioKit.bump();
+          if (r.isPlayer) this.toast('SCOOTED INTO OPEN MAT SPARRING!');
         }
       }
     }
@@ -3443,6 +3595,11 @@ const Game = {
       if (!pr || pr.sx < -60 || pr.sx > W + 60) continue;
       sprites.push({ ...pr, bag });
     }
+    for (const rl of this.rollers) {
+      const pr = project(rl.x, rl.y);
+      if (!pr || pr.sx < -70 || pr.sx > W + 70) continue;
+      sprites.push({ ...pr, roller: rl });
+    }
     sprites.sort((a, b) => b.zf - a.zf);
     for (const s of sprites) {
       const sc = Math.min((f / s.zf) * this.spriteScale, 4.2);
@@ -3450,6 +3607,7 @@ const Game = {
       ctx.translate(s.sx, s.sy);
       ctx.scale(sc, sc);
       if (s.bag) this.drawBagSprite(ctx, t, s.bag.s * 50);
+      else if (s.roller) this.drawRollerSprite(ctx, t);
       else s.r.drawSprite(ctx, angleWrap(s.r.heading - cam.yaw));
       ctx.restore();
     }
@@ -3501,6 +3659,35 @@ const Game = {
     ctx.restore();
   },
 
+  /* two grapplers balled up mid-roll, tumbling across the mats */
+  drawRollerSprite(ctx, t) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 20, 6, 0, 0, TAU);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(0, -16);
+    ctx.rotate(t * 2.6);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(16,19,15,0.85)';
+    /* the ball: half white gi, half blue gi */
+    ctx.fillStyle = '#f2efe6';
+    ctx.beginPath(); ctx.arc(0, 0, 17, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2e6fb5';
+    ctx.beginPath(); ctx.arc(0, 0, 17, Math.PI / 2, -Math.PI / 2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, 17, 0, TAU); ctx.stroke();
+    /* two heads, opposite sides */
+    ctx.fillStyle = '#e8b48c';
+    ctx.beginPath(); ctx.arc(0, -12, 6, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b57e52';
+    ctx.beginPath(); ctx.arc(0, 12, 6, 0, TAU); ctx.fill(); ctx.stroke();
+    /* belts */
+    ctx.strokeStyle = '#7a4fa3';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-16, -4); ctx.lineTo(16, -4); ctx.stroke();
+    ctx.restore();
+  },
+
   drawMinimap(ctx, w, h) {
     if (!this.miniPts || !this.racers.length) return;
     const { w: MW, h: MH } = this.miniBox;
@@ -3537,6 +3724,12 @@ const Game = {
       ctx.beginPath();
       ctx.arc(pd.x * sc + ox, pd.y * sc + oy, 2.5, 0, TAU);
       ctx.fillStyle = 'rgba(120,180,230,0.9)';
+      ctx.fill();
+    }
+    for (const rl of this.rollers) {
+      ctx.beginPath();
+      ctx.arc(rl.x * sc + ox, rl.y * sc + oy, 2.5, 0, TAU);
+      ctx.fillStyle = 'rgba(230,150,80,0.95)';
       ctx.fill();
     }
     for (const r of this.racers) {
