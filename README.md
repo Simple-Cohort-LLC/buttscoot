@@ -21,8 +21,10 @@ around tatami-mat tracks — and settle collisions with real grappling matches.
   trash talk during matches, and a ringside announcer recap after every race
 
 Controls: `↑` scoot · `←/→` steer · `↓` brake (WASD works too). In a match:
-`A` advance · `S` sweep · `D` defend · `F` submit · `G` gloat. Desktop only —
-your thumbs can't butt scoot.
+`A` advance · `S` sweep · `D` defend · `F` submit · `G` gloat. On phones it's
+all thumbs: hold **SCOOT!**, tap `◀ ▶` to steer, tap the moves on the mat.
+`?play` in the URL skips the menu and drops straight into a race (handy for
+embeds).
 
 ## Run locally
 

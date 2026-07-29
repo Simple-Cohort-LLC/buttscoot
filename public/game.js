@@ -1689,9 +1689,17 @@ const Game = {
       else this.rollCharacter(true);
       /* duel invite link: /d/<code> auto-joins once a character exists */
       const dm = location.pathname.match(/^\/d\/([a-z]+-[a-z]+-\d{2})$/);
-      if (dm && !this.isMobile) {
+      if (dm) {
         const waitForChar = () => {
           if (this.playerChar) this.joinDuel(dm[1]);
+          else setTimeout(waitForChar, 200);
+        };
+        waitForChar();
+      }
+      /* ?play — embed/deep-link quick start: straight onto the mats */
+      if (!dm && new URLSearchParams(location.search).has('play')) {
+        const waitForChar = () => {
+          if (this.playerChar) this.startRace();
           else setTimeout(waitForChar, 200);
         };
         waitForChar();
@@ -2475,7 +2483,7 @@ const Game = {
 
   /* a friendly roll straight from the home page — no race attached */
   startDemoMatch() {
-    if (this.isMobile || this.match || !this.playerChar) return;
+    if (this.match || !this.playerChar) return;
     const mk = ch => ({
       char: ch, speed: 0, topSpeed: 200, boostTimer: 0, stunTimer: 0,
       x: 0, y: 0, scW: 0, scL: 0, scSubs: 0, finished: false,
@@ -2491,12 +2499,13 @@ const Game = {
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     this.isMobile = (coarse && 'ontouchstart' in window) || window.innerWidth < 700;
     document.body.classList.toggle('mobile', this.isMobile);
-    document.getElementById('mobile-note').classList.toggle('hidden', !this.isMobile);
+    document.getElementById('hud-item-key').textContent =
+      this.isMobile ? 'TAP TO USE' : 'SPACE TO USE';
   },
 
   /* ---------- race flow ---------- */
   startRace() {
-    if (this.isMobile) return;
+    if (!this.playerChar) return;
     document.getElementById('screen-card').classList.add('hidden');
     document.getElementById('screen-results').classList.add('hidden');
     document.getElementById('hud').classList.remove('hidden');
@@ -3269,6 +3278,45 @@ const Game = {
       const k = map[e.code];
       if (k) { this.input[k] = false; e.preventDefault(); }
     });
+    this.bindTouch();
+  },
+
+  /* thumbs CAN butt scoot: hold-buttons drive the same input map as the keys */
+  bindTouch() {
+    const hold = (id, key) => {
+      const el = document.getElementById(id);
+      const set = (on, e) => {
+        e.preventDefault();
+        AudioKit.ensure();
+        this.input[key] = on;
+        el.classList.toggle('held', on);
+      };
+      /* touch pointers implicitly capture, so up/cancel land back here
+         even when the thumb slides off the button */
+      el.addEventListener('pointerdown', e => set(true, e));
+      el.addEventListener('pointerup', e => set(false, e));
+      el.addEventListener('pointercancel', e => set(false, e));
+      el.addEventListener('contextmenu', e => e.preventDefault());
+    };
+    hold('tc-scoot', 'up');
+    hold('tc-brake', 'down');
+    hold('tc-left', 'left');
+    hold('tc-right', 'right');
+
+    document.getElementById('hud-item').addEventListener('pointerdown', e => {
+      e.preventDefault();
+      AudioKit.ensure();
+      if (this.state === 'race' && this.player && !this.match) this.useItem(this.player);
+    });
+
+    /* grapple moves are tappable (and clickable) as well as key-driven */
+    document.querySelectorAll('.sc-move').forEach(el => {
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        AudioKit.ensure();
+        this.playerAct(el.dataset.move);
+      });
+    });
   },
 
   /* ---------- sim ---------- */
@@ -3691,7 +3739,8 @@ const Game = {
   drawMinimap(ctx, w, h) {
     if (!this.miniPts || !this.racers.length) return;
     const { w: MW, h: MH } = this.miniBox;
-    const px = 16, py = h - MH - 16;
+    /* touch thumbs own the bottom corners */
+    const px = 16, py = h - MH - 16 - (this.isMobile ? 78 : 0);
     ctx.save();
     ctx.translate(px, py);
     ctx.fillStyle = 'rgba(12,17,14,0.65)';
@@ -3750,7 +3799,7 @@ const Game = {
     const p = this.player;
     if (!p || !p.char) return;
     const CW = 158, CH = 96;
-    const px = w - CW - 14, py = h - CH - 66;
+    const px = w - CW - 14, py = h - CH - 66 - (this.isMobile ? 64 : 0);
     ctx.save();
     ctx.translate(px, py);
     ctx.fillStyle = 'rgba(12,17,14,0.65)';

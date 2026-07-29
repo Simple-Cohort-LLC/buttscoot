@@ -26,7 +26,10 @@ html, body {
   color: var(--tape-white);
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
 }
+button { touch-action: manipulation; }
 
 #game {
   position: fixed;
@@ -491,7 +494,6 @@ html, body {
   transition: all .15s;
 }
 .account-chip:hover { border-color: var(--gold); transform: translateY(-1px); }
-body.mobile .account-chip { display: none; }
 
 .bs-modal {
   position: fixed;
@@ -750,6 +752,12 @@ body.modal-open .char-card { visibility: hidden; }
   cursor: pointer;
 }
 #btn-mute:hover { border-color: var(--gold); }
+/* the scoot thumb owns the bottom-right corner on touch */
+body.mobile #btn-mute {
+  bottom: auto;
+  top: calc(84px + env(safe-area-inset-top));
+  right: 14px;
+}
 
 /* ============ MAT SCRAMBLE ============ */
 #scramble {
@@ -771,10 +779,15 @@ body.modal-open .char-card { visibility: hidden; }
   border-radius: 18px;
   padding: 20px 24px 22px;
   width: min(94vw, 540px);
+  max-height: 96vh;
+  max-height: 96dvh;
+  overflow-y: auto;
   text-align: center;
   box-shadow: 0 20px 50px rgba(0,0,0,.55), 0 0 0 6px rgba(244,197,66,.35);
   animation: scSlam .35s cubic-bezier(.2,1.5,.4,1) both;
 }
+body.mobile .scramble-panel { padding: 12px 12px 14px; }
+body.mobile #sc-scene { margin: 6px 0 4px; }
 
 .scramble-head {
   display: flex;
@@ -916,28 +929,69 @@ body.modal-open .char-card { visibility: hidden; }
 .hud-item span { font-size: 26px; }
 .hud-item-label { font-family: var(--font-display); font-size: 14px; color: var(--tape-white); }
 .hud-item-key { font-family: var(--font-mono); font-size: 9px; letter-spacing: .2em; color: var(--gold); margin-top: 2px; }
+/* on touch the item chip IS the button — lift it clear of the thumb clusters */
+body.mobile .hud-item {
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  bottom: calc(120px + env(safe-area-inset-bottom));
+}
+body.mobile .hud-item:active { transform: translateX(-50%) scale(.94); }
+
+/* ============ TOUCH CONTROLS ============ */
+#touch-controls {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 max(14px, env(safe-area-inset-left)) calc(14px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-right));
+  justify-content: space-between;
+  align-items: flex-end;
+}
+body.mobile #touch-controls { display: flex; }
+
+.tc-cluster { display: flex; align-items: flex-end; gap: 12px; }
+
+.tc-btn {
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  border: 2.5px solid rgba(243,239,228,.5);
+  border-radius: 18px;
+  background: rgba(12,17,14,.6);
+  color: var(--tape-white);
+  font-family: var(--font-display);
+  box-shadow: 0 4px 0 rgba(0,0,0,.35);
+  transition: transform .08s;
+}
+.tc-btn.held { transform: scale(.9); border-color: var(--gold); color: var(--gold); }
+
+.tc-steer { width: 72px; height: 72px; font-size: 26px; }
+.tc-brake { width: 64px; height: 64px; font-size: 11px; border-radius: 50%; }
+.tc-scoot {
+  width: 96px;
+  height: 96px;
+  font-size: 17px;
+  border-radius: 50%;
+  color: var(--ink);
+  background: linear-gradient(180deg, #ffd95e, var(--gold));
+  border-color: var(--gold-deep);
+  box-shadow: 0 6px 0 var(--gold-deep), 0 12px 24px rgba(0,0,0,.4);
+}
+.tc-scoot.held { color: var(--ink); border-color: var(--gold-deep); box-shadow: 0 2px 0 var(--gold-deep); }
 
 #btn-demo { font-size: 13px; }
 
-.mobile-note {
-  font-family: var(--font-body);
-  font-size: 14.5px;
-  line-height: 1.55;
-  text-align: center;
-  color: var(--tape-white);
-  background: rgba(200,72,60,.18);
-  border: 2px solid var(--danger-red);
-  border-radius: 14px;
-  padding: 14px 18px;
-  max-width: 420px;
-}
-.mobile-note b { font-family: var(--font-display); color: var(--gold); letter-spacing: .04em; }
+/* centered flex + overflow clips the top of a too-tall screen — stack from
+   the top on phones so the title is always reachable */
+body.mobile .screen { justify-content: flex-start; }
 
-body.mobile #btn-start,
-body.mobile #btn-demo,
-body.mobile .track-pick,
-body.mobile .controls-hint,
-body.mobile #btn-reroll { display: none; }
+/* keyboard hints are noise on touch — swap them for the touch hint */
+.touch-hint { display: none; }
+.touch-hint b { color: var(--gold); }
+body.mobile .touch-hint { display: block; }
+body.mobile .controls-hint:not(.touch-hint) { display: none; }
 
 .scramble-moves {
   display: grid;
@@ -954,7 +1008,13 @@ body.mobile #btn-reroll { display: none; }
   border: 2.5px solid var(--ink);
   border-radius: 10px;
   font-family: var(--font-body);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform .08s;
 }
+.sc-move:active { transform: scale(.95); background: var(--gold); }
+body.mobile .sc-move kbd { display: none; }
+body.mobile .scramble-moves { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
 .sc-move b { font-family: var(--font-display); font-size: 12.5px; letter-spacing: .02em; }
 .sc-move small { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: .04em; color: #6b6454; text-align: center; line-height: 1.3; }
 .sc-move kbd {
@@ -1083,8 +1143,17 @@ body.mobile #btn-reroll { display: none; }
   .stat-pip { width: 14px; height: 9px; }
 }
 
+/* iOS zooms into focused fields below 16px — keep profile inputs at 16 on touch */
+body.mobile .pf-label input,
+body.mobile .pf-label textarea,
+body.mobile .pf-label select { font-size: 16px; }
+
 /* narrow (phone) screens — the card shrinks, so its text must too */
 @media (max-width: 480px) {
+  .sb-block { min-width: 64px; padding: 6px 10px 5px; }
+  .sb-num { font-size: 22px; }
+  .sb-time { font-size: 15px; }
+  .btn-home { top: 96px; padding: 10px 16px; }
   .char-card { width: 250px; height: 400px; }
   #char-portrait { width: 140px; height: 140px; }
   .char-name { font-size: 17px; }

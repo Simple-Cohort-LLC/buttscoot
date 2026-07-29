@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>BUTTSCOOT GP — Jiu Jitsu Racing</title>
 <meta name="description" content="Mario Kart rules. Seated-guard speeds. Race butt-scooting jiu-jitsu characters around tatami tracks — bump a rival and settle it with a grappling match.">
 <meta name="theme-color" content="#131a16">
@@ -31,11 +31,6 @@
 <!-- ===== CHARACTER REVEAL / TITLE SCREEN ===== -->
 <div id="screen-card" class="screen">
   <button id="account-chip" class="account-chip hidden">🔑 SIGN IN</button>
-  <div id="mobile-note" class="mobile-note hidden">
-    🖥 <b>DESKTOP REQUIRED</b><br>
-    Buttscoot GP needs a keyboard — arrows to scoot, home row to grapple.<br>
-    Come back on a computer. Your thumbs can't butt scoot.
-  </div>
   <div class="title-block">
     <div class="title-oss">OSS! WELCOME TO THE</div>
     <h1 class="game-title"><span>BUTT</span><span class="title-scoot">SCOOT</span><span class="title-gp">GP</span></h1>
@@ -74,6 +69,7 @@
   <button id="btn-duel" class="btn btn-ghost hidden">⚔️ DUEL A FRIEND — race a rival live</button>
   <div class="controls-hint">↑ scoot &nbsp;·&nbsp; ← → steer &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; SPACE use item &nbsp;·&nbsp; (WASD works too)</div>
   <div class="controls-hint hint-scramble">⚠ bump a rival → GRAPPLING MATCH — A · S · D · F · G on the mat, any submission ends it</div>
+  <div class="controls-hint touch-hint">hold <b>SCOOT!</b> · tap ◀ ▶ to steer · bump a rival to grapple</div>
   <div class="ai-badge" id="ai-badge">✦ CLAUDE: CHECKING…</div>
 </div>
 
@@ -105,7 +101,17 @@
     <span id="hud-item-icon">🥋</span>
     <div>
       <div class="hud-item-label" id="hud-item-label">FLOW ROLL</div>
-      <div class="hud-item-key">SPACE TO USE</div>
+      <div class="hud-item-key" id="hud-item-key">SPACE TO USE</div>
+    </div>
+  </div>
+  <div id="touch-controls">
+    <div class="tc-cluster">
+      <button class="tc-btn tc-steer" id="tc-left">◀</button>
+      <button class="tc-btn tc-steer" id="tc-right">▶</button>
+    </div>
+    <div class="tc-cluster">
+      <button class="tc-btn tc-brake" id="tc-brake">BRAKE</button>
+      <button class="tc-btn tc-scoot" id="tc-scoot">SCOOT!</button>
     </div>
   </div>
 </div>
