@@ -273,7 +273,6 @@ button { touch-action: manipulation; }
 .stat-pip.on { background: var(--gold-deep); }
 
 /* ============ TRACK PICK ============ */
-.track-pick { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .track-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .track-btn {
   font-family: var(--font-display);
@@ -630,6 +629,36 @@ body.modal-open .char-card { visibility: hidden; }
   background: #fff;
   height: 24px;
 }
+
+/* ============ RACE SETUP FLOW ============ */
+.setup-step {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .3em;
+  color: #6b6454;
+  margin-bottom: 4px;
+}
+.setup-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.setup-choices .track-btn {
+  color: var(--ink);
+  border-color: rgba(16,19,15,.3);
+  background: #fff;
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+.setup-choices .track-btn:hover { border-color: var(--gold-deep); transform: none; }
+.setup-choices .track-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 3px 0 var(--gold-deep);
+}
+.setup-choices .track-btn small { font-size: 9.5px; }
 
 /* ============ DUEL LOBBY ============ */
 .duel-link-row { display: flex; gap: 8px; margin-top: 12px; }

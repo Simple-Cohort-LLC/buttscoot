@@ -13,6 +13,11 @@ around tatami-mat tracks — and settle collisions with real grappling matches.
 - **Items**: grab gear bags on the track — 🥋 Flow Roll (bump rivals without
   triggering a match), 🍓 Açaí Bowl (clears daze + speed burst), 💦 Mystery Mat
   Puddle (drop it behind you, gross). SPACE to use; trailing racers get better luck
+- **Gyms**: pick the venue as well as the mats. Each gym repaints the whole
+  building and bends the house rules — Buttscoot Academy (classic), Hot Room HQ
+  (persistent sweat puddles), Old School Basement (no items, tougher AI), Podium
+  Performance Lab (double boost pads, faster mats). Duels always run academy
+  rules. `?play&gym=hotroom&track=bolo` deep-links a race
 - **Passkey accounts + belt progression** (via the private backend): anonymous
   passkey sign-in, a customizable persistent grappler, and mat points earned from
   every race and match — four stripes per belt, white through black, with daily

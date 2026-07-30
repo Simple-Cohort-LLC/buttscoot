@@ -151,6 +151,36 @@ const TRACKS = [
   },
 ];
 
+/* ---------------- Gyms ----------------
+   A gym is the venue a race happens in: its colors, its wall, and its house
+   rules. The academy keeps each track's own colors; every other gym repaints
+   the whole building and bends the racing rules to match its personality. */
+const GYMS = [
+  {
+    id: 'academy', name: 'BUTTSCOOT ACADEMY', sub: 'HOUSE RULES · CLASSIC',
+  },
+  {
+    id: 'hotroom', name: 'HOT ROOM HQ', sub: '104° · SWEAT PUDDLES ON THE MATS',
+    palette: { mat: '#c96a3a', border: '#8a2f26', floor: '#2a1510' },
+    wallText: 'HOT ROOM HQ',
+    sweatPuddles: 7,
+  },
+  {
+    id: 'basement', name: 'OLD SCHOOL BASEMENT', sub: 'NO ITEMS · CARDIO ONLY · TOUGH AI',
+    palette: { mat: '#5c6b74', border: '#31383d', floor: '#141719' },
+    wallText: 'EST. 1994',
+    noItems: true,
+    aiBoost: 0.05,
+  },
+  {
+    id: 'podium', name: 'PODIUM PERFORMANCE LAB', sub: 'DOUBLE BOOSTS · FAST MATS',
+    palette: { mat: '#2aa198', border: '#e8c33c', floor: '#10201e' },
+    wallText: 'PODIUM LAB',
+    doubleBoosts: true,
+    speedMult: 1.12,
+  },
+];
+
 /* ---------------- Items ---------------- */
 const ITEM_DEFS = {
   flow:   { icon: '🥋', name: 'FLOW ROLL' },
@@ -563,13 +593,23 @@ class Track {
       minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y);
     }
     this.bounds = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
-    this.boosts = (this.def.boostS || []).map(s => {
+    let boostS = this.def.boostS || [];
+    if (this.def.doubleBoosts && boostS.length) {
+      /* a pad midway between each existing pair — the lab loves boosts */
+      const sorted = [...boostS].sort((a, b) => a - b);
+      const mids = sorted.map((s, i) => {
+        const next = i + 1 < sorted.length ? sorted[i + 1] : sorted[0] + 1;
+        return ((s + next) / 2) % 1;
+      });
+      boostS = boostS.concat(mids);
+    }
+    this.boosts = boostS.map(s => {
       const p = this.sampleAt(s);
       return { x: p.x, y: p.y, dirX: p.dirX, dirY: p.dirY, s };
     });
     /* gear bags: item pickups, one either side of the racing line */
     this.bags = [];
-    for (const s of (this.def.bagS || [])) {
+    for (const s of (this.def.noItems ? [] : this.def.bagS || [])) {
       const p = this.sampleAt(s);
       const nx = -p.dirY, ny = p.dirX;
       for (const side of [-1, 1]) {
@@ -833,7 +873,7 @@ class Track {
     ctx.fillStyle = 'rgba(243,239,228,0.05)';
     ctx.font = '44px Bungee, sans-serif';
     ctx.textAlign = 'center';
-    for (let x = 128; x < w; x += 340) ctx.fillText('BUTTSCOOT GP', x, 74);
+    for (let x = 128; x < w; x += 340) ctx.fillText(d.wallText || 'BUTTSCOOT GP', x, 74);
 
     /* wall pads (bottom band) */
     const padTop = h - 52;
@@ -882,8 +922,9 @@ class Racer {
     this.slot = slot;
 
     const st = char.stats;
-    this.topSpeed = 175 + st.speed * 24;
-    this.accel = 300 + st.scoot * 62;
+    const gm = track.def.speedMult || 1; // fast mats lift everyone equally
+    this.topSpeed = (175 + st.speed * 24) * gm;
+    this.accel = (300 + st.scoot * 62) * gm;
     this.turnRate = 2.3 + st.control * 0.55;
 
     const backS = 1 - (0.014 + slot * 0.012);
@@ -921,7 +962,7 @@ class Racer {
     this.vz = 0;
 
     if (!isPlayer) {
-      this.aiSkill = 0.86 + Math.random() * 0.12;
+      this.aiSkill = 0.86 + Math.random() * 0.12 + (track.def.aiBoost || 0);
       this.aiWobble = Math.random() * TAU;
       this.aiLine = (Math.random() - 0.5) * track.width * 0.4;
     }
@@ -1696,8 +1737,14 @@ const Game = {
         };
         waitForChar();
       }
-      /* ?play — embed/deep-link quick start: straight onto the mats */
-      if (!dm && new URLSearchParams(location.search).has('play')) {
+      /* ?play — embed/deep-link quick start: straight onto the mats
+         (optionally ?play&gym=hotroom&track=bolo) */
+      const qp = new URLSearchParams(location.search);
+      if (!dm && qp.has('play')) {
+        const gi = GYMS.findIndex(g => g.id === qp.get('gym'));
+        if (gi > 0) this.selectGym(gi);
+        const ti = TRACKS.findIndex(t => t.id === qp.get('track'));
+        if (ti >= 0) this.selectTrack(ti);
         const waitForChar = () => {
           if (this.playerChar) this.startRace();
           else setTimeout(waitForChar, 200);
@@ -1705,7 +1752,7 @@ const Game = {
         waitForChar();
       }
     });
-    this.selectTrack(0);
+    this.selectGym(0);
     this.layout();
     // canvas text uses Bungee/Archivo — rebuild world art once fonts arrive
     if (document.fonts && document.fonts.ready) {
@@ -1762,16 +1809,45 @@ const Game = {
 
   /* ---------- UI ---------- */
   bindUI() {
+    /* race setup flow: mats first, then the gym, then straight to the line */
     const trackBtns = document.getElementById('track-buttons');
     TRACKS.forEach((t, i) => {
       const b = document.createElement('button');
       b.className = 'track-btn';
       b.innerHTML = `${t.name}<small>${t.sub}</small>`;
-      b.addEventListener('click', () => { AudioKit.ensure(); this.selectTrack(i); });
+      b.addEventListener('click', () => {
+        AudioKit.ensure();
+        this.selectTrack(i);
+        this.setupStep(2);
+      });
       trackBtns.appendChild(b);
     });
 
-    document.getElementById('btn-start').addEventListener('click', () => { AudioKit.ensure(); this.startRace(); });
+    const gymBtns = document.getElementById('gym-buttons');
+    GYMS.forEach((g, i) => {
+      const b = document.createElement('button');
+      b.className = 'track-btn';
+      b.innerHTML = `${g.name}<small>${g.sub}</small>`;
+      b.addEventListener('click', () => {
+        AudioKit.ensure();
+        this.selectGym(i);
+        this.hideModal('modal-setup');
+        this.startRace();
+      });
+      gymBtns.appendChild(b);
+    });
+
+    document.getElementById('btn-setup-back').addEventListener('click', () => {
+      AudioKit.ensure();
+      this.setupStep(1);
+    });
+
+    document.getElementById('btn-start').addEventListener('click', () => {
+      AudioKit.ensure();
+      if (!this.playerChar) return;
+      this.setupStep(1);
+      this.showModal('modal-setup');
+    });
     document.getElementById('btn-reroll').addEventListener('click', () => { AudioKit.ensure(); this.rollCharacter(); });
     document.getElementById('char-card').addEventListener('click', () => {
       AudioKit.ensure();
@@ -2053,11 +2129,33 @@ const Game = {
 
   selectTrack(i) {
     this.trackDef = TRACKS[i];
-    document.querySelectorAll('.track-btn').forEach((b, j) => b.classList.toggle('active', j === i));
-    this.track = new Track(this.trackDef);
+    this.trackIndex = i;
+    document.querySelectorAll('#track-buttons .track-btn').forEach((b, j) => b.classList.toggle('active', j === i));
+    /* the gym repaints the venue and layers its house rules onto the track */
+    const gym = this.gym || GYMS[0];
+    const def = { ...this.trackDef, ...(gym.palette || {}) };
+    for (const k of ['wallText', 'noItems', 'doubleBoosts', 'speedMult', 'aiBoost', 'sweatPuddles']) {
+      if (gym[k] !== undefined) def[k] = gym[k];
+    }
+    this.track = new Track(def);
     this.track.buildTexture();
     this.track.buildWall();
     this.buildMinimap();
+  },
+
+  setupStep(n) {
+    document.getElementById('setup-step').textContent = `STEP ${n} OF 2`;
+    document.getElementById('setup-title').textContent =
+      n === 1 ? 'PICK YOUR MATS' : 'PICK YOUR GYM';
+    document.getElementById('track-buttons').classList.toggle('hidden', n !== 1);
+    document.getElementById('gym-buttons').classList.toggle('hidden', n !== 2);
+    document.getElementById('btn-setup-back').classList.toggle('hidden', n !== 2);
+  },
+
+  selectGym(i) {
+    this.gym = GYMS[i];
+    document.querySelectorAll('#gym-buttons .track-btn').forEach((b, j) => b.classList.toggle('active', j === i));
+    this.selectTrack(this.trackIndex || 0); // rebuild the venue in the new colors
   },
 
   fillCard() {
@@ -2314,6 +2412,9 @@ const Game = {
   beginDuelRace(trackId, countdownMs) {
     const d = this.duel;
     if (!d || !d.room) return;
+    /* duels are always academy house rules — gym modifiers would be unfair
+       (each side could pick different physics) */
+    if (this.gym && this.gym.id !== 'academy') this.selectGym(0);
     const idx = TRACKS.findIndex(t => t.id === trackId);
     this.selectTrack(idx >= 0 ? idx : 0);
 
@@ -2526,6 +2627,17 @@ const Game = {
     this.match = null;
     this.matchCdUntil = 0;
     this.puddles = [];
+    /* hot-room gyms start with sweat already on the mats (clear of the grid) */
+    const sweat = this.track.def.sweatPuddles || 0;
+    for (let i = 0; i < sweat; i++) {
+      const s = 0.08 + ((i + 0.5) / sweat) * 0.86 + (Math.random() - 0.5) * 0.04;
+      const p = this.track.sampleAt(s);
+      const off = (Math.random() - 0.5) * this.track.width * 0.6;
+      this.puddles.push({
+        x: p.x - p.dirY * off, y: p.y + p.dirX * off,
+        owner: null, armAt: 0, sweat: true,
+      });
+    }
     for (const bag of this.track.bags) bag.activeAt = 0;
     document.getElementById('hud-item').classList.add('hidden');
     document.getElementById('scramble').classList.add('hidden');
@@ -3468,12 +3580,14 @@ const Game = {
         if (this.raceTime < p.armAt) continue;
         if (p.owner === r && this.raceTime < p.armAt + 1.2) continue;
         if (dist2(r.x, r.y, p.x, p.y) < 26 * 26) {
-          this.puddles.splice(i, 1);
+          /* sweat patches are part of the gym — they re-arm instead of wiping up */
+          if (p.sweat) p.armAt = this.raceTime + 2.5;
+          else this.puddles.splice(i, 1);
           r.slipTimer = 1.3;
           r.speed *= 0.35;
           r.bump = 1;
           AudioKit.slip();
-          if (r.isPlayer) this.toast('SLIPPED ON A MYSTERY PUDDLE! EW!');
+          if (r.isPlayer) this.toast(p.sweat ? 'SLIPPED ON SWEAT! HYDRATE!' : 'SLIPPED ON A MYSTERY PUDDLE! EW!');
         }
       }
     }
@@ -3758,7 +3872,7 @@ const Game = {
     ctx.lineWidth = 9;
     ctx.lineJoin = 'round';
     ctx.stroke();
-    ctx.strokeStyle = this.trackDef.mat;
+    ctx.strokeStyle = this.track.def.mat;
     ctx.lineWidth = 6;
     ctx.stroke();
 
