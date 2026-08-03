@@ -543,6 +543,113 @@ const DuelKit = {
   },
 };
 
+/* ---------------- Voice (WebRTC, peer-to-peer through the duel room) ------ */
+const VoiceKit = {
+  pc: null, stream: null, enabled: false, polite: false, muted: false,
+  makingOffer: false, ignoreOffer: false, queued: [],
+  remoteOn: false, audioEl: null, onState: null, state: 'off',
+
+  setState(s) {
+    this.state = s;
+    if (this.onState) this.onState(s);
+  },
+
+  async enable(polite) {
+    if (this.enabled) return;
+    this.polite = polite;
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+    } catch (e) {
+      this.setState('mic-denied');
+      return;
+    }
+    this.enabled = true;
+    this.setState('connecting');
+    const pc = this.pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+    for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
+    pc.onnegotiationneeded = async () => {
+      try {
+        this.makingOffer = true;
+        await pc.setLocalDescription();
+        DuelKit.send({ t: 'rtc', data: { description: pc.localDescription } });
+      } catch (e) { /* retried by the browser */ }
+      finally { this.makingOffer = false; }
+    };
+    pc.onicecandidate = e => {
+      if (e.candidate) DuelKit.send({ t: 'rtc', data: { candidate: e.candidate } });
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      if (s === 'connected') this.setState('live');
+      else if (s === 'failed') this.setState('failed');
+      else if (s === 'disconnected') this.setState('connecting');
+    };
+    pc.ontrack = e => {
+      if (!this.audioEl) {
+        this.audioEl = document.createElement('audio');
+        this.audioEl.autoplay = true;
+        document.body.appendChild(this.audioEl);
+      }
+      this.audioEl.srcObject = e.streams[0];
+    };
+    DuelKit.send({ t: 'voice', on: true });
+    const q = this.queued;
+    this.queued = [];
+    for (const d of q) await this.handleRtc(d);
+  },
+
+  async onRtc(data) {
+    if (!this.enabled) { this.queued.push(data); return; } // consent first
+    await this.handleRtc(data);
+  },
+
+  /* the "perfect negotiation" pattern: guest is the polite peer */
+  async handleRtc(data) {
+    const pc = this.pc;
+    if (!pc || !data) return;
+    try {
+      if (data.description) {
+        const collision = data.description.type === 'offer' &&
+          (this.makingOffer || pc.signalingState !== 'stable');
+        this.ignoreOffer = !this.polite && collision;
+        if (this.ignoreOffer) return;
+        await pc.setRemoteDescription(data.description);
+        if (data.description.type === 'offer') {
+          await pc.setLocalDescription();
+          DuelKit.send({ t: 'rtc', data: { description: pc.localDescription } });
+        }
+      } else if (data.candidate) {
+        try { await pc.addIceCandidate(data.candidate); }
+        catch (e) { if (!this.ignoreOffer) throw e; }
+      }
+    } catch (e) { /* transient negotiation state; connection handler recovers */ }
+  },
+
+  toggleMute() {
+    if (!this.stream) return this.muted;
+    this.muted = !this.muted;
+    this.stream.getAudioTracks().forEach(t => { t.enabled = !this.muted; });
+    return this.muted;
+  },
+
+  stop() {
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    if (this.pc) { try { this.pc.close(); } catch (e) { /* gone */ } }
+    if (this.audioEl) { this.audioEl.remove(); this.audioEl = null; }
+    this.pc = null;
+    this.stream = null;
+    this.enabled = false;
+    this.muted = false;
+    this.queued = [];
+    this.remoteOn = false;
+    this.setState('off');
+  },
+};
+
 /* ---------------- Track geometry + world texture ---------------- */
 class Track {
   constructor(def) {
@@ -2271,6 +2378,55 @@ const Game = {
       this.hideModal('modal-duel');
       this.endDuelSession();
     });
+    document.getElementById('btn-voice').addEventListener('click', () => {
+      AudioKit.ensure();
+      if (!this.duel) return;
+      if (!VoiceKit.enabled) {
+        VoiceKit.onState = () => this.updateVoiceUi();
+        VoiceKit.enable(this.duel.you === 'guest'); // guest is the polite peer
+      } else {
+        VoiceKit.toggleMute();
+      }
+      this.updateVoiceUi();
+    });
+    document.getElementById('hud-mic').addEventListener('click', () => {
+      VoiceKit.toggleMute();
+      this.updateVoiceUi();
+    });
+  },
+
+  updateVoiceUi() {
+    const btn = document.getElementById('btn-voice');
+    const status = document.getElementById('voice-status');
+    const mic = document.getElementById('hud-mic');
+    status.classList.remove('live', 'bad');
+    if (!VoiceKit.enabled) {
+      btn.textContent = '🎙 ENABLE VOICE';
+      if (VoiceKit.state === 'mic-denied') {
+        status.textContent = 'mic permission denied — check browser settings';
+        status.classList.add('bad');
+      } else if (VoiceKit.remoteOn) {
+        status.textContent = 'your rival enabled voice — click to join them';
+        status.classList.add('live');
+      } else {
+        status.textContent = 'talk while you race — opens when both enable';
+      }
+      mic.classList.add('hidden');
+      return;
+    }
+    btn.textContent = VoiceKit.muted ? '🎙 UNMUTE' : '🎙 MUTE';
+    if (VoiceKit.state === 'live') {
+      status.textContent = VoiceKit.muted ? 'VOICE LIVE · you are muted' : 'VOICE LIVE';
+      status.classList.add('live');
+    } else if (VoiceKit.state === 'failed') {
+      status.textContent = "couldn't connect voice (restrictive network)";
+      status.classList.add('bad');
+    } else {
+      status.textContent = VoiceKit.remoteOn ? 'connecting…' : 'waiting for your rival to enable voice…';
+    }
+    mic.classList.toggle('hidden', !(this.duel && (this.state === 'race' || this.state === 'countdown')));
+    mic.classList.toggle('muted', VoiceKit.muted);
+    mic.textContent = VoiceKit.muted ? '🔇' : '🎙';
   },
 
   duelError(msg) {
@@ -2319,6 +2475,8 @@ const Game = {
     if (d) clearInterval(d.sendTimer);
     this.duel = null;
     DuelKit.close();
+    VoiceKit.stop();
+    document.getElementById('hud-mic').classList.add('hidden');
     document.getElementById('btn-again').textContent = 'SCOOT AGAIN';
     if (!quiet && (this.state === 'race' || this.state === 'countdown')) this.goHome();
   },
@@ -2328,6 +2486,8 @@ const Game = {
     if (!d) return;
     clearInterval(d.sendTimer);
     this.duel = null;
+    VoiceKit.stop();
+    document.getElementById('hud-mic').classList.add('hidden');
     if (this.state === 'race' || this.state === 'countdown') {
       this.goHome();
     } else if (this.state !== 'finish') {
@@ -2356,6 +2516,11 @@ const Game = {
         if (d.remote) d.remote.finished = true;
         if (this.state === 'race') this.toast('RIVAL FINISHED!');
       }
+    } else if (m.t === 'rtc') {
+      VoiceKit.onRtc(m.data);
+    } else if (m.t === 'voice') {
+      VoiceKit.remoteOn = !!m.on;
+      this.updateVoiceUi();
     } else if (m.t === 'result') {
       this.showDuelResults(m);
     } else if (m.t === 'left') {
@@ -2486,6 +2651,7 @@ const Game = {
         z: p.z, lap: p.lap, progress: p.progress,
       });
     }, 80);
+    this.updateVoiceUi(); // surface the in-race mic chip if voice is on
   },
 
   netUpdateRemote(r, dt) {
@@ -2564,6 +2730,8 @@ const Game = {
       clearInterval(this.duel.sendTimer);
       this.duel = null;
       DuelKit.close();
+      VoiceKit.stop();
+      document.getElementById('hud-mic').classList.add('hidden');
       document.getElementById('btn-again').textContent = 'SCOOT AGAIN';
     }
     this.hideModal('modal-duel');
