@@ -15,9 +15,19 @@ const json = (status, obj) =>
     headers: { 'content-type': 'application/json' },
   });
 
+/* Apple App Site Association: lets the native iOS app share passkeys with
+   this domain (webcredentials). Served from code so the content-type is
+   right — Workers assets would guess octet-stream for an extensionless file. */
+const AASA = {
+  webcredentials: { apps: ['HBV5993KNP.com.simplecohortllc.buttscoot'] },
+};
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/.well-known/apple-app-site-association') {
+      return json(200, AASA);
+    }
     if (url.pathname === '/api/status') {
       return json(200, { ai: Boolean(env.ANTHROPIC_API_KEY) });
     }
